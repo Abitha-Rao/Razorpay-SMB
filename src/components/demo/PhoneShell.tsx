@@ -17,8 +17,9 @@ export function PhoneShell() {
       .catch(() => actions.setAiAvailable(false));
   }, []);
 
+  // On phones, leave a 56px strip under the app so floating badges (e.g. Lovable's) never cover the nav.
   return (
-    <div className="min-h-dvh bg-[#e9edf3] sm:py-6">
+    <div className="min-h-dvh bg-[#e9edf3] pb-14 sm:py-6">
       <div className="mx-auto flex w-full max-w-[390px] flex-col sm:gap-3">
         {/* Demo controls – outside the phone on desktop, a slim bar on mobile */}
         <div className="flex items-center gap-2 bg-white px-3 py-2 sm:rounded-2xl sm:px-2 sm:shadow-sm">
@@ -50,7 +51,7 @@ export function PhoneShell() {
           </button>
         </div>
 
-        <div className="relative flex h-[calc(100dvh-56px)] flex-col overflow-hidden bg-white sm:h-[min(780px,calc(100dvh-110px))] sm:min-h-[560px] sm:rounded-[40px] sm:border-[10px] sm:border-[#111827] sm:shadow-2xl">
+        <div className="relative flex h-[calc(100dvh-116px)] flex-col overflow-hidden bg-white sm:h-[min(780px,calc(100dvh-110px))] sm:min-h-[560px] sm:rounded-[40px] sm:border-[10px] sm:border-[#111827] sm:shadow-2xl">
           <div className="shrink-0 bg-warning/15 px-3 py-1.5 text-center text-[11px] font-medium text-[#93370d]">
             Prototype – simulated Razorpay checkout, no real payments
           </div>

@@ -118,37 +118,54 @@ export function fallbackDraft(
   const uncertain: string[] = [];
   const qtyMatch =
     chat.match(/(\d+)\s*(pcs|pieces|piece|nos|qty)/i) ?? chat.match(/\bx\s?(\d+)\b/i);
-  const qty = qtyMatch ? Number(qtyMatch[1]) : 1;
-  if (!qtyMatch) uncertain.push("Quantity not mentioned – assumed 1");
   const sizeMatch = chat.match(/\bsize\s*[:-]?\s*(xxl|xl|xs|s|m|l)\b/i);
+  let qtyGuessed = false;
 
   const lines: DraftResult["lines"] = [];
   for (const item of catalog) {
     const kw =
       ITEM_KEYWORDS[item.id] ?? new RegExp(item.name.split(" ").slice(-1)[0] ?? item.name, "i");
-    if (kw.test(chat)) {
-      lines.push({
-        type: "catalog",
-        catalog_id: item.id,
-        name: item.name,
-        qty,
-        unit_price: item.price,
-        size: sizeMatch?.[1] && item.id === "kurti-blue" ? sizeMatch[1].toUpperCase() : null,
-      });
-    }
+    const idx = chat.search(kw);
+    if (idx < 0) continue;
+    // "2 jhumkas and 1 dupatta": take the number written just before the item.
+    const before = chat.slice(Math.max(0, idx - 20), idx);
+    const own = before.match(/(\d+)\s*(?:x\s*)?(?:[a-z]+\s+){0,2}$/i)?.[1];
+    const qty = own ? Number(own) : qtyMatch ? Number(qtyMatch[1]) : 1;
+    if (!own && !qtyMatch) qtyGuessed = true;
+    lines.push({
+      type: "catalog",
+      catalog_id: item.id,
+      name: item.name,
+      qty,
+      unit_price: item.price,
+      size: sizeMatch?.[1] && item.id === "kurti-blue" ? sizeMatch[1].toUpperCase() : null,
+    });
   }
+  if (qtyGuessed) uncertain.push("Quantity not mentioned – assumed 1");
   if (lines.some((l) => l.catalog_id === "kurti-blue") && !sizeMatch)
     uncertain.push("Size not mentioned – please check");
   if (lines.length === 0) {
     lines.push({
       type: "custom",
       name: "Item from chat (edit name)",
-      qty,
+      qty: qtyMatch ? Number(qtyMatch[1]) : 1,
       unit_price: null,
       weight_kg: 0.3,
     });
     uncertain.push("Couldn't match an item from your catalog – added as a custom line");
   }
+
+  const pct = chat.match(/(\d{1,2})\s*%/)?.[1];
+  const flat = chat.match(/(?:₹|rs\.?\s?)(\d+)\s*(?:off|discount)/i)?.[1];
+  const discount: DraftResult["discount"] = pct
+    ? { type: "percent", value: Number(pct) }
+    : flat
+      ? { type: "flat", value: Number(flat) }
+      : null;
+  const nameMatch = chat.match(/\b(?:name|naam)\s*(?:is|:|-)?\s*([a-z]+)/i)?.[1];
+  const buyerName = nameMatch
+    ? nameMatch[0]!.toUpperCase() + nameMatch.slice(1).toLowerCase()
+    : null;
 
   const phone =
     chat.match(/(?:\+91[\s-]?)?[6-9][0-9x]{4}\s?[0-9x]{5}/i)?.[0] ?? from?.phone ?? null;
@@ -162,10 +179,10 @@ export function fallbackDraft(
   if (!phone) uncertain.push("Buyer phone not in chat");
 
   return {
-    buyer_name: from?.name ?? null,
+    buyer_name: buyerName ?? from?.name ?? null,
     buyer_phone: phone,
     lines,
-    discount: null,
+    discount,
     payment_hint,
     address_text: addressMatch?.[1]?.trim() ?? null,
     pincode,

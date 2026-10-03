@@ -3,7 +3,7 @@ import { toast } from "sonner";
 
 import { Btn, Card, ScreenHeader, SectionTitle } from "@/components/demo/ui";
 import { formatINR } from "@/lib/demo/money";
-import { RTO_LOSS_PER_PARCEL } from "@/lib/demo/seed";
+import { BASELINE_REFUSAL_RATE, RTO_LOSS_PER_PARCEL } from "@/lib/demo/seed";
 import { useStore } from "@/lib/demo/store";
 import type { Order } from "@/lib/demo/types";
 
@@ -56,10 +56,21 @@ export function Summary() {
     };
   });
 
-  const tiles = [
+  // Parcels that would have come back at the old refusal rate, minus those that actually did.
+  const saved = Math.round(
+    Math.max(0, (BASELINE_REFUSAL_RATE - refusalRate) / 100) *
+      codOrders.length *
+      RTO_LOSS_PER_PARCEL,
+  );
+
+  const tiles: { label: string; value: string; note?: string }[] = [
     { label: "Orders this month", value: String(month.length) },
     { label: "Prepaid share", value: `${prepaidShare}%` },
-    { label: "COD refusal rate", value: `${refusalRate}%` },
+    {
+      label: "COD refusal rate",
+      value: `${refusalRate}%`,
+      note: `Before Order Link: ${BASELINE_REFUSAL_RATE}%`,
+    },
     { label: "Repeat buyers", value: String(repeatBuyers) },
   ];
 
@@ -75,18 +86,19 @@ export function Summary() {
             <Card key={t.label} className="p-3">
               <p className="text-2xl font-bold text-navy">{t.value}</p>
               <p className="text-xs text-navy/60">{t.label}</p>
+              {t.note && <p className="mt-0.5 text-[11px] text-navy/45">{t.note}</p>}
             </Card>
           ))}
         </div>
-        <Card className="flex items-center justify-between border border-risk/20 bg-risk/5 p-3">
-          <div>
-            <p className="text-xs text-navy/60">Money lost to refused parcels</p>
-            <p className="text-[11px] text-navy/45">
-              {refused} refused × {formatINR(RTO_LOSS_PER_PARCEL)} shipping both ways
-            </p>
+        <Card className="border border-success/25 bg-success/6 p-3">
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm font-medium text-navy">Saved this month</p>
+            <p className="text-2xl font-bold text-[#027a48]">{formatINR(saved)}</p>
           </div>
-          <p className="text-2xl font-bold text-[#b42318]">
-            {formatINR(refused * RTO_LOSS_PER_PARCEL)}
+          <p className="mt-1 text-[11px] text-navy/50">
+            Fewer refused parcels than at {BASELINE_REFUSAL_RATE}%. Still lost:{" "}
+            {formatINR(refused * RTO_LOSS_PER_PARCEL)} ({refused} refused ×{" "}
+            {formatINR(RTO_LOSS_PER_PARCEL)} shipping both ways)
           </p>
         </Card>
 

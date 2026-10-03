@@ -19,13 +19,24 @@ export const ADDRESS_SYSTEM_PROMPT =
 export const VERDICT_SYSTEM_PROMPT =
   "Explain a COD risk decision to a small seller in one or two plain sentences, no jargon, no blame on the buyer. Input: tier, action taken, reasons list. Return plain text.";
 
+/** Calls give up after this long so the client can fall back to the demo parser. */
+export const AI_TIMEOUT_MS = 8000;
+
+/**
+ * Reads the secret on the server only. Lovable's Cloudflare worker exposes secrets as
+ * bindings on globalThis.__env__ (Nitro), and on process.env when Node compat populates it.
+ */
 function apiKey(): string | undefined {
-  return typeof process !== "undefined" ? process.env["ANTHROPIC_API_KEY"] : undefined;
+  const fromProcess = typeof process !== "undefined" ? process.env["ANTHROPIC_API_KEY"] : undefined;
+  const bindings = (globalThis as { __env__?: Record<string, unknown> }).__env__;
+  const fromBindings = bindings?.["ANTHROPIC_API_KEY"];
+  const key = fromProcess || (typeof fromBindings === "string" ? fromBindings : undefined);
+  return key?.trim() || undefined;
 }
 
 async function callClaude(system: string, user: string, maxTokens: number): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic({ apiKey: apiKey(), timeout: 15_000, maxRetries: 1 });
+  const client = new Anthropic({ apiKey: apiKey(), timeout: AI_TIMEOUT_MS, maxRetries: 0 });
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: maxTokens,
@@ -67,6 +78,8 @@ export const draftOrderFn = createServerFn({ method: "POST" })
     if (!data.useLive || !apiKey()) return fallback();
     try {
       const user = JSON.stringify({
+        instructions:
+          "Copy quantities, the discount (flat rupees or percent), buyer name and phone exactly as written in the chat. UPI, GPay, PhonePe or 'pay now' means payment_hint prepaid; COD means cod.",
         chat: data.chat,
         shared_from_contact: data.from ?? null,
         catalog: data.catalog.map((c) => ({ id: c.id, name: c.name, price: c.price })),

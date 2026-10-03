@@ -10,12 +10,13 @@ import {
   inputCls,
   notInPrototype,
 } from "@/components/demo/ui";
-import { cleanAddressFn, explainRiskFn } from "@/lib/demo/ai.functions";
+import { AI_TIMEOUT_MS, cleanAddressFn, explainRiskFn } from "@/lib/demo/ai.functions";
 import { fallbackCleanAddress } from "@/lib/demo/fallback";
 import { buyerPrices, formatINR, lineTotal } from "@/lib/demo/money";
 import { actionSentence, scoreRisk, templateVerdict } from "@/lib/demo/risk";
 import { SELLER, UNSERVICEABLE_PINCODES } from "@/lib/demo/seed";
 import { actions, getState, useStore } from "@/lib/demo/store";
+import { withTimeout } from "@/lib/demo/timeout";
 import type { Order, RiskResult } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
 
@@ -154,12 +155,14 @@ function AddressStep() {
     const current = getState().buyer;
     if (current?.suggestion?.forAddress === address) return;
     setCleaning(true);
-    let res: Awaited<ReturnType<typeof cleanAddressFn>>;
-    try {
-      res = await cleanAddressFn({ data: { address, useLive } });
-    } catch {
-      res = { source: "fallback", result: fallbackCleanAddress(address) };
-    }
+    const res = await withTimeout(
+      cleanAddressFn({ data: { address, useLive } }),
+      AI_TIMEOUT_MS,
+      () => ({
+        source: "fallback" as const,
+        result: fallbackCleanAddress(address),
+      }),
+    );
     setCleaning(false);
     // Ignore if the buyer kept typing meanwhile.
     if (getState().buyer?.address !== address) return;
@@ -390,20 +393,21 @@ function runCodCheck(orderId: string) {
 
 async function fetchVerdict(orderId: string, risk: RiskResult) {
   const useLive = getState().settings.useLiveAi;
-  try {
-    const res = await explainRiskFn({
+  // Falls back to the template verdict (already on the order) on error or after 8s.
+  const res = await withTimeout(
+    explainRiskFn({
       data: {
         tier: risk.tier,
         action: actionSentence(risk, formatINR),
         reasons: risk.reasons.map((r) => r.label),
         useLive,
       },
-    });
-    if (res.source === "claude" && res.text) {
-      actions.updateOrder(orderId, { verdict: res.text, verdictSource: "claude" });
-    }
-  } catch {
-    // Keep the template verdict.
+    }),
+    AI_TIMEOUT_MS,
+    () => ({ source: "fallback" as const, text: null }),
+  );
+  if (res.source === "claude" && res.text) {
+    actions.updateOrder(orderId, { verdict: res.text, verdictSource: "claude" });
   }
 }
 

@@ -1,11 +1,9 @@
-import { Btn, StatusChip } from "@/components/demo/ui";
-import { buyerPrices, formatINR } from "@/lib/demo/money";
+import { Btn, OrderAmount, StatusChip } from "@/components/demo/ui";
 import { SELLER } from "@/lib/demo/seed";
 import { actions, useStore } from "@/lib/demo/store";
 
 export function Home() {
   const orders = useStore((s) => s.orders);
-  const settings = useStore((s) => s.settings);
   const today = new Date().toDateString();
   const todayCount = orders.filter((o) => new Date(o.createdAt).toDateString() === today).length;
   const awaiting = orders.filter((o) => o.status === "awaiting_payment").length;
@@ -72,9 +70,7 @@ export function Home() {
                 </p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
-                <span className="text-sm font-semibold text-navy">
-                  {formatINR(buyerPrices(o.lines, o.discount, settings).value)}
-                </span>
+                <OrderAmount order={o} />
                 <StatusChip status={o.status} />
               </div>
             </button>

@@ -101,10 +101,84 @@ function initialState(aiAvailable = false): State {
   };
 }
 
-let state: State = initialState();
+// ---------- persistence ----------
+// The demo survives a page refresh; "Reset demo" clears it. Storage can be unavailable
+// (private mode, blocked site data), so every access is guarded.
+
+const STORAGE_KEY = "order-link-demo-v1";
+
+type Persisted = Pick<
+  State,
+  | "view"
+  | "tab"
+  | "settings"
+  | "catalog"
+  | "orders"
+  | "draft"
+  | "linkOrderId"
+  | "buyer"
+  | "linksCreated"
+  | "orderSeq"
+>;
+
+function loadPersisted(): State {
+  const fresh = initialState();
+  if (typeof window === "undefined") return fresh;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return fresh;
+    const saved = JSON.parse(raw) as Partial<Persisted>;
+    if (!Array.isArray(saved.orders) || !saved.settings) return fresh;
+    const restored: State = {
+      ...fresh,
+      ...saved,
+      settings: { ...fresh.settings, ...saved.settings },
+    };
+    // Steps driven by timers can't resume after a reload; step back to where they started.
+    if (restored.draft.status === "loading")
+      restored.draft = { ...restored.draft, status: "editing" };
+    if (restored.buyer?.step === "checking")
+      restored.buyer = { ...restored.buyer, step: "payment" };
+    return restored;
+  } catch {
+    return fresh;
+  }
+}
+
+function persist(s: State) {
+  if (typeof window === "undefined") return;
+  const data: Persisted = {
+    view: s.view,
+    tab: s.tab,
+    settings: s.settings,
+    catalog: s.catalog,
+    orders: s.orders,
+    draft: s.draft,
+    linkOrderId: s.linkOrderId,
+    buyer: s.buyer,
+    linksCreated: s.linksCreated,
+    orderSeq: s.orderSeq,
+  };
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // Storage full or blocked – the demo still works in memory.
+  }
+}
+
+function clearPersisted() {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+let state: State = loadPersisted();
 const listeners = new Set<() => void>();
 
 function emit() {
+  persist(state);
   for (const l of listeners) l();
 }
 
@@ -133,6 +207,7 @@ export function useStore<T>(selector: (s: State) => T): T {
 
 export const actions = {
   resetDemo() {
+    clearPersisted();
     state = initialState(state.aiAvailable);
     emit();
   },
@@ -140,7 +215,15 @@ export const actions = {
     setState({ aiAvailable });
   },
   setView(view: State["view"]) {
-    setState({ view });
+    // Switching phones always dismisses the share sheet; land on the order book if it was open.
+    setState((s) =>
+      s.shareOrderId
+        ? { view, shareOrderId: null, tab: "orders", screen: { kind: "tab" } }
+        : { view },
+    );
+  },
+  closeShareSheet() {
+    setState({ shareOrderId: null, tab: "orders", screen: { kind: "tab" } });
   },
   setTab(tab: SellerTab) {
     setState({ tab, screen: { kind: "tab" } });

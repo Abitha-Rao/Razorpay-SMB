@@ -1,7 +1,6 @@
 import { useState } from "react";
 
-import { FilterChip, ScreenHeader, StatusChip, inputCls } from "@/components/demo/ui";
-import { buyerPrices, formatINR } from "@/lib/demo/money";
+import { FilterChip, OrderAmount, ScreenHeader, StatusChip, inputCls } from "@/components/demo/ui";
 import { actions, useStore } from "@/lib/demo/store";
 import type { Order, OrderStatus } from "@/lib/demo/types";
 
@@ -30,7 +29,6 @@ function payType(o: Order): "prepaid" | "cod" | "pending" {
 
 export function Orders() {
   const orders = useStore((s) => s.orders);
-  const settings = useStore((s) => s.settings);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<OrderStatus | "all">("all");
   const [pay, setPay] = useState<(typeof PAY_FILTERS)[number]["key"]>("all");
@@ -81,7 +79,6 @@ export function Orders() {
           <li className="py-10 text-center text-sm text-navy/50">No orders match</li>
         )}
         {list.map((o) => {
-          const p = buyerPrices(o.lines, o.discount, settings);
           const pt = payType(o);
           return (
             <li key={o.id}>
@@ -104,7 +101,7 @@ export function Orders() {
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="text-sm font-semibold text-navy">{formatINR(p.value)}</span>
+                  <OrderAmount order={o} />
                   <StatusChip status={o.status} />
                 </div>
               </button>

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Btn, Card, Field, ScreenHeader, SectionTitle, inputCls } from "@/components/demo/ui";
 import { formatINR } from "@/lib/demo/money";
 import { STRICTNESS_COPY, THRESHOLDS } from "@/lib/demo/risk";
+import { SELLER } from "@/lib/demo/seed";
 import { actions, useStore } from "@/lib/demo/store";
 import type { Strictness } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
@@ -86,16 +87,27 @@ export function SettingsScreen() {
         <section className="space-y-2">
           <Toggle
             label="Show my completed-order count to buyers"
-            sub="Buyers see “142 orders completed via Razorpay” on your link."
+            sub={`Buyers see “${SELLER.completedOrders} orders completed via Razorpay” on your link.`}
             checked={settings.showOrderCount}
             onChange={(v) => actions.updateSettings({ showOrderCount: v })}
           />
           <Toggle
             label="Use live AI (Claude)"
+            badge={
+              aiAvailable ? (
+                <span className="rounded-full bg-success/12 px-2 py-0.5 text-[10px] font-semibold text-[#027a48]">
+                  Connected
+                </span>
+              ) : (
+                <span className="rounded-full bg-navy/8 px-2 py-0.5 text-[10px] font-semibold text-navy/55">
+                  Not connected
+                </span>
+              )
+            }
             sub={
               aiAvailable
-                ? "On: Claude Haiku drafts orders and tidies addresses. Off: the built-in demo parser."
-                : "No API key set on the server – the built-in demo parser is used."
+                ? "Claude Haiku drafts orders, tidies addresses and explains COD decisions."
+                : "Add ANTHROPIC_API_KEY as a server secret to turn this on."
             }
             checked={settings.useLiveAi && aiAvailable}
             disabled={!aiAvailable}
@@ -178,12 +190,14 @@ export function SettingsScreen() {
 
 function Toggle({
   label,
+  badge,
   sub,
   checked,
   disabled,
   onChange,
 }: {
   label: string;
+  badge?: ReactNode;
   sub: string;
   checked: boolean;
   disabled?: boolean;
@@ -198,7 +212,10 @@ function Toggle({
       aria-checked={checked}
     >
       <span>
-        <span className="block text-sm font-medium text-navy">{label}</span>
+        <span className="flex items-center gap-2 text-sm font-medium text-navy">
+          {label}
+          {badge}
+        </span>
         <span className="block text-xs text-navy/55">{sub}</span>
       </span>
       <span

@@ -6,13 +6,13 @@ A clickable, mobile-first prototype for a product-management challenge. A one-pe
 
 ## Demo path (about 90 seconds)
 
-1. **Seller app** → **New order** → tap preset **b) New COD buyer** → **Draft with AI** → **Create link** → **Share on WhatsApp**.
-2. **See what the buyer sees** (or use the **Buyer view** toggle) → **Confirm address** → **Accept** the cleaned address → **Continue to payment** → **Cash on delivery**.
+1. **Seller app** → **New order** → tap preset **b) New COD buyer** → **Draft with AI** → **Create link** → **Share on WhatsApp** (or close the sheet with ✕, Escape or a tap outside).
+2. **Buyer view** toggle (or the toast's **Buyer view** button) → **Confirm address** → **Accept** the cleaned address → **Continue to payment** → **Cash on delivery**.
 3. Checking order… → **medium risk** → **Pay ₹490 now, rest on delivery** → pay with any UPI app.
-4. Switch to **Seller app** → **Orders**. ORD-1064 shows **Partial paid** with the plain-language verdict: _"Medium risk: first order from this number and address looked incomplete. Asked for ₹490 upfront."_
-5. **Summary** → Pro card, "Ready for your own store?" card (64 orders this month) and Working capital card.
+4. Switch to **Seller app** → **Orders**. ORD-1064 shows **Partial paid**, total ₹2,569 ("₹490 paid · ₹2,079 on delivery"), and its detail has the plain-language verdict: _"Medium risk: first order from this number and address looked incomplete. Asked for ₹490 upfront."_
+5. **Summary** → COD refusal rate with "Before Order Link: 31%", the "Saved this month" card, the Pro card, "Ready for your own store?" card (64 orders this month) and Working capital card.
 
-**Reset demo** (top right) reloads the seed data. A page refresh does the same.
+The demo state (orders, settings, current draft and link) is saved in `localStorage`, so a page refresh keeps the order you just created. **Reset demo** (top right) clears it and reloads the seed data.
 
 ## Risk rules (simulated, deterministic)
 
@@ -61,10 +61,16 @@ Catalog prices always come from the catalog, whatever price the model returns.
 
 ### Turning live AI on
 
-1. In Lovable, open the project's Cloud or Secrets settings and add a secret named `ANTHROPIC_API_KEY`.
+1. In Lovable, add a secret named `ANTHROPIC_API_KEY` in the project's settings (Secrets or environment variables). The server reads it from `process.env` or the Cloudflare worker bindings.
 2. Re-publish. **Settings → Use live AI (Claude)** becomes available, and the draft shows "Drafted by Claude Haiku".
 
-If no key is set, or a call fails or returns bad JSON, every call falls back to the hard-coded parser in [`src/lib/demo/fallback.ts`](src/lib/demo/fallback.ts). The fallback returns the expected draft for the three preset chats, so the demo always works. To record the demo, switch live AI off in Settings so a slow API call can't spoil the take.
+If no key is set, or a call fails, returns bad JSON or takes longer than 8 seconds, the app silently falls back to the parser in [`src/lib/demo/fallback.ts`](src/lib/demo/fallback.ts). The fallback returns the expected draft for the three preset chats, so the demo always works. It also reads per-item quantities, % or ₹ discounts, names and phone numbers from free-form chats.
+
+What you see on screen:
+
+- **Drafts:** "Drafted by AI" appears only when Claude answered. A fallback draft shows no label.
+- **Risk verdicts:** "Why:" appears before the sentence only when Claude wrote it. A fallback verdict is shown with no label.
+- **Settings:** shows "Connected" when the server can see the key. To record the demo, switch live AI off there so a slow API call can't spoil the take.
 
 ## What is simulated
 
@@ -72,6 +78,7 @@ If no key is set, or a call fails or returns bad JSON, every call falls back to 
 - **WhatsApp share and Copy link:** they show a toast, and Copy also copies the message.
 - **Pincode serviceability:** a small seeded "not serviceable" list.
 - **Seed data:** 63 past orders over 4 weeks (about 35% prepaid, 4 refused COD parcels, repeat buyer Anjali with 3 delivered orders, and number `98111 22233` with one past refusal), so the demo order becomes the 64th this month.
+- **"Saved this month":** (31% baseline refusal rate − current rate) × this month's COD orders × ₹180. The 31% "before" rate is an assumed baseline.
 - **Pro trial, store migration, loan eligibility:** these show a "not in prototype" toast.
 - **State:** held in memory in one store, shared by the seller and buyer views.
 

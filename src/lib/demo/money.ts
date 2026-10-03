@@ -1,4 +1,4 @@
-import type { Discount, OrderLine, Settings } from "./types";
+import type { Discount, Order, OrderLine, Settings } from "./types";
 
 export function formatINR(amount: number): string {
   return "₹" + Math.round(amount).toLocaleString("en-IN");
@@ -53,4 +53,16 @@ export function upfrontAmount(value: number): number {
 
 export function isLineComplete(line: OrderLine): boolean {
   return line.name.trim().length > 0 && line.qty >= 1 && (line.unitPrice ?? 0) > 0;
+}
+
+/** What the order costs the buyer: items + shipping + COD fee (shipping/fee are set once they choose). */
+export function orderTotal(order: Order): number {
+  return orderValue(order.lines, order.discount) + order.shippingCharged + order.codFee;
+}
+
+/** Left to collect in cash on delivery (0 for prepaid or not-yet-chosen orders). */
+export function dueOnDelivery(order: Order): number {
+  if (order.paymentMode !== "cod" && order.paymentMode !== "partial") return 0;
+  if (order.status === "delivered" || order.status === "refused") return 0;
+  return Math.max(0, orderTotal(order) - order.paidAmount);
 }

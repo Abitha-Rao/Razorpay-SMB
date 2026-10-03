@@ -127,3 +127,18 @@ describe("other presets", () => {
     expect(risk.reasons.map((r) => r.code)).toContain("past_refusal");
   });
 });
+
+describe("fallback parser on a free-form chat", () => {
+  it("reads per-item quantities, % discount, name, phone and UPI", () => {
+    const d = fallbackDraft(
+      "hi! 2 jhumkas and 1 dupatta for my sister, regular customer so some discount na? 10% off ok. name Kavya, 9876501234, will pay upi",
+      SEED_CATALOG,
+    );
+    const qty = Object.fromEntries(d.lines.map((l) => [l.catalog_id, l.qty]));
+    expect(qty).toEqual({ "jhumka-silver": 2, "dupatta-blockprint": 1 });
+    expect(d.discount).toEqual({ type: "percent", value: 10 });
+    expect(d.buyer_name).toBe("Kavya");
+    expect(d.buyer_phone).toBe("9876501234");
+    expect(d.payment_hint).toBe("prepaid");
+  });
+});

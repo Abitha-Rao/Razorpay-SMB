@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
 import {
@@ -10,8 +10,8 @@ import {
   Spinner,
   inputCls,
 } from "@/components/demo/ui";
-import { draftOrderFn } from "@/lib/demo/ai.functions";
-import { PRESETS } from "@/lib/demo/fallback";
+import { AI_TIMEOUT_MS, draftOrderFn } from "@/lib/demo/ai.functions";
+import { PRESETS, fallbackDraft } from "@/lib/demo/fallback";
 import {
   buyerPrices,
   discountAmount,
@@ -23,6 +23,7 @@ import {
 } from "@/lib/demo/money";
 import { SELLER } from "@/lib/demo/seed";
 import { actions, getState, newLineId, useStore } from "@/lib/demo/store";
+import { withTimeout } from "@/lib/demo/timeout";
 import type { CatalogItem, DraftResult, OrderLine } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
 
@@ -71,15 +72,12 @@ export function NewOrder() {
     if (!d.chat.trim()) return;
     actions.updateDraft({ status: "loading" });
     const started = Date.now();
-    let result: Awaited<ReturnType<typeof draftOrderFn>>;
-    try {
-      result = await draftOrderFn({
-        data: { chat: d.chat, catalog: cat, from: d.from, useLive: st.useLiveAi },
-      });
-    } catch {
-      const { fallbackDraft } = await import("@/lib/demo/fallback");
-      result = { source: "fallback", draft: fallbackDraft(d.chat, cat, d.from) };
-    }
+    // The demo parser is a silent fallback if the call fails or takes longer than 8s.
+    const result = await withTimeout(
+      draftOrderFn({ data: { chat: d.chat, catalog: cat, from: d.from, useLive: st.useLiveAi } }),
+      AI_TIMEOUT_MS,
+      () => ({ source: "fallback" as const, draft: fallbackDraft(d.chat, cat, d.from) }),
+    );
     const wait = MIN_LOADING_MS - (Date.now() - started);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     const r = result.draft;
@@ -318,14 +316,11 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <SectionTitle>Draft order</SectionTitle>
-        <span
-          className={cn(
-            "mb-2 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-            draft.source === "claude" ? "bg-rzp/10 text-rzp-dark" : "bg-navy/8 text-navy/60",
-          )}
-        >
-          {draft.source === "claude" ? "Drafted by Claude Haiku" : "Drafted by demo parser"}
-        </span>
+        {draft.source === "claude" && (
+          <span className="mb-2 rounded-full bg-rzp/10 px-2 py-0.5 text-[10px] font-semibold text-rzp-dark">
+            Drafted by AI
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -513,89 +508,90 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
 function ShareSheet({ orderId }: { orderId: string }) {
   const order = useStore((s) => s.orders.find((o) => o.id === orderId));
   const settings = useStore((s) => s.settings);
-  const [shared, setShared] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") actions.closeShareSheet();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   if (!order) return null;
 
   const total = buyerPrices(order.lines, order.discount, settings).prepaidTotal;
   const first = order.buyerName && order.buyerName !== "Buyer" ? order.buyerName.split(" ")[0] : "";
   const link = `rzp.io/ol/${order.linkCode}`;
   const message = `Hi${first ? " " + first : ""}, here is your order from ${SELLER.name}: ${formatINR(total)}. Confirm address and pay here: ${link}`;
+  const openBuyer = { label: "Buyer view", onClick: () => actions.setView("buyer") };
 
   return (
-    <div className="absolute inset-0 z-30 flex items-end bg-navy/40" onClick={() => actions.back()}>
+    <div
+      className="absolute inset-0 z-30 flex items-end bg-navy/40"
+      onClick={() => actions.closeShareSheet()}
+    >
       <div
+        role="dialog"
+        aria-label="Share order link"
         className="w-full rounded-t-3xl bg-white px-4 pb-6 pt-3 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-navy/15" />
-        {!shared ? (
-          <>
+        <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-navy/15" />
+        <div className="flex items-start justify-between gap-2">
+          <div>
             <h3 className="text-base font-semibold text-navy">Share order link</h3>
             <p className="mb-3 text-xs text-navy/55">
               {order.id} · {link}
             </p>
-            <div className="mb-4 rounded-2xl bg-[#e7fbe6] p-3">
-              <p className="rounded-xl rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-relaxed text-[#111b21] shadow-sm">
-                {message}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Btn
-                size="lg"
-                className="w-full bg-[#25D366] hover:bg-[#1ebe5a]"
-                onClick={() => {
-                  setShared(true);
-                  toast.success("Sent on WhatsApp (simulated)");
-                }}
-              >
-                Share on WhatsApp
-              </Btn>
-              <Btn
-                variant="secondary"
-                size="lg"
-                className="w-full"
-                onClick={() => {
-                  navigator.clipboard?.writeText(message).catch(() => undefined);
-                  toast("Link copied");
-                }}
-              >
-                Copy link
-              </Btn>
-            </div>
-          </>
-        ) : (
-          <div className="py-2 text-center">
-            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-success/12 text-2xl text-success">
-              ✓
-            </div>
-            <h3 className="text-base font-semibold text-navy">
-              Link sent to {first || "the buyer"}
-            </h3>
-            <p className="mb-4 text-xs text-navy/55">It's in your Orders as "Awaiting payment".</p>
-            <div className="space-y-2">
-              <Btn
-                size="lg"
-                className="w-full"
-                onClick={() => {
-                  // Coming back to the seller app should land on the order book.
-                  actions.setTab("orders");
-                  actions.setView("buyer");
-                }}
-              >
-                See what the buyer sees →
-              </Btn>
-              <Btn
-                variant="ghost"
-                className="w-full"
-                onClick={() => {
-                  actions.setTab("orders");
-                }}
-              >
-                Go to Orders
-              </Btn>
-            </div>
           </div>
-        )}
+          <button
+            onClick={() => actions.closeShareSheet()}
+            aria-label="Close"
+            className="-mr-1 -mt-1 flex h-9 w-9 items-center justify-center rounded-full text-navy/60 hover:bg-surface"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+            >
+              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="mb-4 rounded-2xl bg-[#e7fbe6] p-3">
+          <p className="rounded-xl rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-relaxed text-[#111b21] shadow-sm">
+            {message}
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Btn
+            size="lg"
+            className="w-full bg-[#25D366] hover:bg-[#1ebe5a]"
+            onClick={() => {
+              actions.closeShareSheet();
+              toast.success(`Sent to ${first || "the buyer"} on WhatsApp (simulated)`, {
+                action: openBuyer,
+              });
+            }}
+          >
+            Share on WhatsApp
+          </Btn>
+          <Btn
+            variant="secondary"
+            size="lg"
+            className="w-full"
+            onClick={() => {
+              navigator.clipboard?.writeText(message).catch(() => undefined);
+              actions.closeShareSheet();
+              toast("Link copied", { action: openBuyer });
+            }}
+          >
+            Copy link
+          </Btn>
+        </div>
       </div>
     </div>
   );

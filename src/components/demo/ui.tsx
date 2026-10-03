@@ -2,7 +2,8 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
-import type { OrderStatus, RiskTier } from "@/lib/demo/types";
+import { dueOnDelivery, formatINR, orderTotal } from "@/lib/demo/money";
+import type { Order, OrderStatus, RiskTier } from "@/lib/demo/types";
 
 export function notInPrototype(what?: string) {
   toast(what ? `${what} – not in prototype` : "Not in prototype");
@@ -194,5 +195,20 @@ export function Spinner({ className }: { className?: string }) {
         className,
       )}
     />
+  );
+}
+
+/** Order total as shown in lists – matches the order detail, with the split for partial-paid orders. */
+export function OrderAmount({ order }: { order: Order }) {
+  const due = dueOnDelivery(order);
+  return (
+    <>
+      <span className="text-sm font-semibold text-navy">{formatINR(orderTotal(order))}</span>
+      {order.paymentMode === "partial" && due > 0 && (
+        <span className="text-[10px] text-navy/45">
+          {formatINR(order.paidAmount)} paid · {formatINR(due)} on delivery
+        </span>
+      )}
+    </>
   );
 }

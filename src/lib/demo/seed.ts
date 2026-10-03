@@ -11,7 +11,7 @@ import type {
 export const SELLER: Seller = {
   name: "Meera's Handloom",
   city: "Jaipur",
-  completedOrders: 142,
+  completedOrders: 128,
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -47,6 +47,9 @@ export const UNSERVICEABLE_PINCODES = ["744101", "194101", "737101"];
 
 /** Average loss per refused COD parcel (forward + return shipping, packaging). */
 export const RTO_LOSS_PER_PARCEL = 180;
+
+/** COD refusal rate before Order Link (the seller's old WhatsApp-only COD), for the before/after story. */
+export const BASELINE_REFUSAL_RATE = 31;
 
 type Buyer = { name: string; phone: string; address: string; pincode: string };
 

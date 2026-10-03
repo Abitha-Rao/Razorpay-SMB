@@ -9,7 +9,15 @@ import {
   TIER_META,
   Timeline,
 } from "@/components/demo/ui";
-import { discountAmount, formatINR, lineTotal, orderValue, subtotal } from "@/lib/demo/money";
+import {
+  discountAmount,
+  dueOnDelivery,
+  formatINR,
+  lineTotal,
+  orderTotal,
+  orderValue,
+  subtotal,
+} from "@/lib/demo/money";
 import { actions, useStore } from "@/lib/demo/store";
 import type { Order } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
@@ -39,8 +47,8 @@ export function OrderDetail({ id }: { id: string }) {
 
   const value = orderValue(order.lines, order.discount);
   const disc = discountAmount(order.lines, order.discount);
-  const total = value + order.shippingCharged + order.codFee;
-  const due = order.paymentMode === "pending" ? 0 : Math.max(0, total - order.paidAmount);
+  const total = orderTotal(order);
+  const due = dueOnDelivery(order);
   const canShip = ["paid", "cod_confirmed", "partial_paid"].includes(order.status);
 
   return (
@@ -67,15 +75,13 @@ export function OrderDetail({ id }: { id: string }) {
             <div className="flex items-center gap-2">
               <span className={cn("h-2 w-2 rounded-full", TIER_META[order.risk.tier].dot)} />
               <span className="text-xs font-semibold">COD check · score {order.risk.score}</span>
-              <span className="ml-auto text-[10px] opacity-70">
-                {order.verdictSource === "claude" ? "Explained by Claude" : "Rule summary"}
-              </span>
             </div>
-            <p className="mt-1.5 text-sm leading-relaxed text-navy">{order.verdict}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-navy">
+              {order.verdictSource === "claude" && <span className="mr-1 font-semibold">Why:</span>}
+              {order.verdict}
+            </p>
             <details className="mt-2 text-xs text-navy/70">
-              <summary className="cursor-pointer select-none font-medium">
-                Why (rules that fired)
-              </summary>
+              <summary className="cursor-pointer select-none font-medium">Rules that fired</summary>
               <ul className="mt-1 space-y-0.5">
                 {order.risk.reasons.map((r) => (
                   <li key={r.code} className="flex justify-between">
