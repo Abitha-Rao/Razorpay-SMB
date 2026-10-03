@@ -42,20 +42,32 @@ export type RiskReasonCode =
   | "tier3_pincode"
   | "high_value"
   | "custom_line"
-  | "repeat_buyer";
+  | "repeat_buyer"
+  | "cod_blocked";
 
-export type RiskReason = { code: RiskReasonCode; points: number; label: string };
+export type RiskReason = {
+  code: RiskReasonCode;
+  points: number;
+  label: string;
+  /** For low_address: what was missing. */
+  detail?: "no_house" | "no_street" | undefined;
+};
 
 export type RiskResult = {
   score: number;
   tier: RiskTier;
   reasons: RiskReason[];
-  /** What the buyer was offered as a result. */
-  action: "cod_confirmed" | "partial_upfront" | "prepaid_only";
+  /** Which payment options the buyer is shown. */
+  action: "cod_allowed" | "partial_upfront" | "prepaid_only";
   upfrontAmount?: number | undefined;
-  /** True when a custom line forced prepaid-only regardless of score. */
-  customForcedPrepaid?: boolean | undefined;
+  /** Why COD was switched off, when action is prepaid_only. */
+  prepaidReason?: "custom" | "blocked" | "score" | undefined;
 };
+
+/** How the buyer finally settled after seeing the options. */
+export type RiskOutcome = "cod" | "partial" | "prepaid";
+
+export type Courier = "Delhivery" | "Shadowfax" | "Ekart" | "India Post" | "DTDC" | "Other";
 
 export type TimelineEvent = { label: string; at: string };
 
@@ -77,14 +89,25 @@ export type Order = {
   codFee: number;
   /** Shipping charged on this order (0 if waived for prepaid). */
   shippingCharged: number;
-  risk?: RiskResult;
-  verdict?: string;
-  verdictSource?: "claude" | "template";
+  city?: string | undefined;
+  state?: string | undefined;
+  /** Address was copied from this phone's last order ("same address as last time"). */
+  addressSource?: "last_order" | undefined;
+  risk?: RiskResult | undefined;
+  verdict?: string | undefined;
+  verdictSource?: "claude" | "template" | undefined;
   timeline: TimelineEvent[];
-  uncertain?: string[];
-  /** Seed orders that ended in a refused COD parcel. */
-  refused?: boolean;
+  uncertain?: string[] | undefined;
+  courier?: Courier | undefined;
+  awb?: string | undefined;
+  shippedAt?: string | undefined;
+  /** Who marked it delivered: the courier feed (seed), the seller, the 10-day rule, or a doorstep UPI payment. */
+  deliveredBy?: "courier" | "seller" | "auto" | "upi" | undefined;
+  /** Paid online (prepaid, part-paid or doorstep UPI) – counts towards the trust badge. */
+  paymentVerified?: boolean | undefined;
 };
+
+export type BlockedPhone = { phone: string; name: string; at: string };
 
 export type Settings = {
   strictness: Strictness;
@@ -98,7 +121,6 @@ export type Settings = {
 export type Seller = {
   name: string;
   city: string;
-  completedOrders: number;
 };
 
 /** What the AI (or fallback parser) returns for a chat. */

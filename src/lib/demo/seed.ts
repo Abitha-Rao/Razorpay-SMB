@@ -1,5 +1,6 @@
 import type {
   CatalogItem,
+  Courier,
   Order,
   OrderLine,
   OrderStatus,
@@ -11,8 +12,10 @@ import type {
 export const SELLER: Seller = {
   name: "Meera's Handloom",
   city: "Jaipur",
-  completedOrders: 128,
 };
+
+/** The trust badge shown to buyers on the seed data. */
+export const SEED_TRUST_COUNT = 128;
 
 export const DEFAULT_SETTINGS: Settings = {
   strictness: "balanced",
@@ -213,7 +216,9 @@ const REFUSED_AT: Partial<Record<number, Buyer>> = {
 
 const ANJALI_AT = [5, 22, 40];
 const SEED_COUNT = 63;
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+const SEED_COURIERS: Courier[] = ["Delhivery", "Shadowfax", "Ekart", "DTDC", "India Post"];
 
 /** Index into a fixed seed list (always in range). */
 function at<T>(list: T[], i: number): T {
@@ -311,6 +316,12 @@ export function buildSeedOrders(now = Date.now()): Order[] {
             ? value + 70 + 49
             : 0;
 
+    const shippedStatus = status === "shipped" || status === "delivered" || status === "refused";
+    const courier = SEED_COURIERS[i % SEED_COURIERS.length]!;
+    const delivered = status === "delivered";
+    // Some COD buyers paid by UPI at the doorstep; prepaid and part-paid are verified online.
+    const paidByUpi = delivered && paymentMode === "cod" && i % 2 === 0;
+
     orders.push({
       id: `ORD-${1001 + i}`,
       linkCode: code(rand),
@@ -326,8 +337,20 @@ export function buildSeedOrders(now = Date.now()): Order[] {
       paidAmount,
       codFee: isCod ? 49 : 0,
       shippingCharged: isCod ? 70 : 0,
-      refused,
-      timeline: seedTimeline(status, paymentMode, created),
+      timeline: seedTimeline(status, paymentMode, created, shippedStatus ? courier : undefined),
+      ...(shippedStatus
+        ? {
+            courier,
+            awb: `${courier.slice(0, 2).toUpperCase()}${7300000 + i * 1373}`,
+            shippedAt: new Date(created + 20 * HOUR).toISOString(),
+          }
+        : {}),
+      ...(delivered
+        ? {
+            deliveredBy: paidByUpi ? ("upi" as const) : ("courier" as const),
+            paymentVerified: paymentMode === "prepaid" || paymentMode === "partial" || paidByUpi,
+          }
+        : {}),
     });
   }
   return orders.reverse(); // newest first
@@ -356,7 +379,7 @@ function randomLines(rand: () => number, i: number): OrderLine[] {
   return lines;
 }
 
-function seedTimeline(status: OrderStatus, mode: PaymentMode, created: number) {
+function seedTimeline(status: OrderStatus, mode: PaymentMode, created: number, courier?: Courier) {
   const at = (h: number) => new Date(created + h * 60 * 60 * 1000).toISOString();
   const t = [{ label: "Link sent", at: at(0) }];
   if (status === "awaiting_payment") return t;
@@ -365,9 +388,27 @@ function seedTimeline(status: OrderStatus, mode: PaymentMode, created: number) {
   else if (mode === "partial") t.push({ label: "Part paid, rest on delivery", at: at(0.4) });
   else t.push({ label: "COD confirmed", at: at(0.4) });
   if (status === "paid" || status === "cod_confirmed" || status === "partial_paid") return t;
-  t.push({ label: "Shipped", at: at(20) });
+  t.push({ label: courier ? `Shipped via ${courier}` : "Shipped", at: at(20) });
   if (status === "shipped") return t;
-  if (status === "refused") t.push({ label: "Refused at door – returning to seller", at: at(96) });
+  if (status === "refused") t.push({ label: "Returned to seller", at: at(96) });
   else t.push({ label: "Delivered", at: at(96) });
   return t;
+}
+
+/** Payment-verified deliveries minus returns – what the trust badge counts. */
+function verifiedScore(orders: Order[]): number {
+  const verified = orders.filter((o) => o.status === "delivered" && o.paymentVerified).length;
+  const returns = orders.filter((o) => o.status === "refused").length;
+  return verified - returns;
+}
+
+let seedScore: number | null = null;
+
+/**
+ * "N orders completed via Razorpay": lifetime count that starts at 128 on the seed data and
+ * moves with payment-verified deliveries (prepaid, part-paid or doorstep UPI) minus returns.
+ */
+export function trustBadgeCount(orders: Order[]): number {
+  seedScore ??= verifiedScore(buildSeedOrders());
+  return Math.max(0, SEED_TRUST_COUNT + verifiedScore(orders) - seedScore);
 }

@@ -96,8 +96,8 @@ export function Summary() {
             <p className="text-2xl font-bold text-[#027a48]">{formatINR(saved)}</p>
           </div>
           <p className="mt-1 text-[11px] text-navy/50">
-            Fewer refused parcels than at {BASELINE_REFUSAL_RATE}%. Still lost:{" "}
-            {formatINR(refused * RTO_LOSS_PER_PARCEL)} ({refused} refused ×{" "}
+            Fewer returned parcels than at {BASELINE_REFUSAL_RATE}%. Still lost:{" "}
+            {formatINR(refused * RTO_LOSS_PER_PARCEL)} ({refused} returned ×{" "}
             {formatINR(RTO_LOSS_PER_PARCEL)} shipping both ways)
           </p>
         </Card>

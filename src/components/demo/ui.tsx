@@ -89,7 +89,7 @@ export const STATUS_META: Record<OrderStatus, { label: string; cls: string }> = 
   partial_paid: { label: "Partial paid", cls: "bg-[#7a5af8]/12 text-[#5925dc]" },
   shipped: { label: "Shipped", cls: "bg-navy/8 text-navy" },
   delivered: { label: "Delivered", cls: "bg-success/12 text-[#027a48]" },
-  refused: { label: "Refused (RTO)", cls: "bg-risk/12 text-[#b42318]" },
+  refused: { label: "Returned (RTO)", cls: "bg-risk/12 text-[#b42318]" },
 };
 
 export function StatusChip({ status }: { status: OrderStatus }) {
@@ -210,5 +210,24 @@ export function OrderAmount({ order }: { order: Order }) {
         </span>
       )}
     </>
+  );
+}
+
+/** Small tag on deliveries the seller marked themselves (not confirmed by courier or payment). */
+export function MarkedByYou() {
+  return (
+    <span className="rounded-full border border-navy/15 px-2 py-0.5 text-[10px] font-medium text-navy/55">
+      Marked by you
+    </span>
+  );
+}
+
+/** Status chip plus the "Marked by you" tag, for order lists. */
+export function OrderStatusTags({ order }: { order: Order }) {
+  return (
+    <span className="flex items-center gap-1">
+      {order.deliveredBy === "seller" && <MarkedByYou />}
+      <StatusChip status={order.status} />
+    </span>
   );
 }

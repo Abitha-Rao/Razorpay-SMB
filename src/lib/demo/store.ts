@@ -3,16 +3,24 @@
  * show the same order instantly. "Reset demo" rebuilds it from the seed.
  */
 import { useSyncExternalStore } from "react";
+import { toast } from "sonner";
 
-import { buyerPrices } from "./money";
+import { isPlaceholderAddress, titleCaseName } from "./fallback";
+import type { MessageKind } from "./messages";
+import { buyerPrices, formatINR, orderTotal, orderValue } from "./money";
+import { normalizePhone, scoreRisk, sellerVerdict } from "./risk";
 import { DEFAULT_SETTINGS, SEED_CATALOG, buildSeedOrders } from "./seed";
+import { AUTO_DELIVER_MS } from "./shipping";
 import type {
   AddressResult,
   AiSource,
+  BlockedPhone,
   CatalogItem,
+  Courier,
   Discount,
   Order,
   OrderLine,
+  RiskOutcome,
   RiskResult,
   Settings,
 } from "./types";
@@ -26,16 +34,19 @@ export type DraftState = {
   source?: AiSource | undefined;
   lines: OrderLine[];
   discount: Discount;
+  /** Shown under the discount when it was capped. */
+  discountWarning?: string | null | undefined;
   buyerName: string;
   buyerPhone: string;
   addressText: string;
   pincode: string;
+  /** The chat asked for "same/old address": fill it from this phone's last order. */
+  useSavedAddress?: boolean | undefined;
   paymentHint: "prepaid" | "cod" | "unknown";
   uncertain: string[];
 };
 
-export type BuyerStep =
-  "order" | "address" | "payment" | "checking" | "cod_outcome" | "checkout" | "done";
+export type BuyerStep = "order" | "address" | "checking" | "payment" | "checkout" | "done";
 
 export type BuyerFlow = {
   orderId: string;
@@ -44,12 +55,17 @@ export type BuyerFlow = {
   phone: string;
   address: string;
   pincode: string;
-  suggestion?: AddressResult & { source: AiSource; forAddress: string };
+  city: string;
+  state: string;
+  suggestion?: (AddressResult & { source: AiSource; forAddress: string }) | undefined;
   suggestionHandled: boolean;
-  risk?: RiskResult;
-  checkout?: { amount: number; purpose: "prepaid" | "partial" | "prepaid_after_risk" };
-  paymentId?: string;
+  /** Computed when the buyer taps "Continue to payment"; decides which options they see. */
+  risk?: RiskResult | undefined;
+  checkout?: { amount: number; purpose: "prepaid" | "partial" } | undefined;
+  paymentId?: string | undefined;
 };
+
+export type Sheet = { kind: MessageKind | "ship"; orderId: string };
 
 export type State = {
   view: "seller" | "buyer";
@@ -59,10 +75,13 @@ export type State = {
   catalog: CatalogItem[];
   orders: Order[];
   draft: DraftState;
-  shareOrderId: string | null;
+  /** The one bottom sheet open in the seller app (share/copy messages, ship order). */
+  sheet: Sheet | null;
   /** The order the buyer link points at (latest link created). */
   linkOrderId: string | null;
   buyer: BuyerFlow | null;
+  /** Phones the seller won't offer COD to (added when a parcel is returned). */
+  codBlocked: BlockedPhone[];
   linksCreated: number;
   orderSeq: number;
   aiAvailable: boolean;
@@ -74,10 +93,12 @@ export function emptyDraft(): DraftState {
     status: "editing",
     lines: [],
     discount: null,
+    discountWarning: null,
     buyerName: "",
     buyerPhone: "",
     addressText: "",
     pincode: "",
+    useSavedAddress: false,
     paymentHint: "unknown",
     uncertain: [],
   };
@@ -92,9 +113,10 @@ function initialState(aiAvailable = false): State {
     catalog: SEED_CATALOG.map((c) => ({ ...c })),
     orders: buildSeedOrders(),
     draft: emptyDraft(),
-    shareOrderId: null,
+    sheet: null,
     linkOrderId: null,
     buyer: null,
+    codBlocked: [],
     linksCreated: 0,
     orderSeq: 1064,
     aiAvailable,
@@ -105,7 +127,7 @@ function initialState(aiAvailable = false): State {
 // The demo survives a page refresh; "Reset demo" clears it. Storage can be unavailable
 // (private mode, blocked site data), so every access is guarded.
 
-const STORAGE_KEY = "order-link-demo-v1";
+const STORAGE_KEY = "order-link-demo-v2";
 
 type Persisted = Pick<
   State,
@@ -117,6 +139,7 @@ type Persisted = Pick<
   | "draft"
   | "linkOrderId"
   | "buyer"
+  | "codBlocked"
   | "linksCreated"
   | "orderSeq"
 >;
@@ -125,6 +148,7 @@ function loadPersisted(): State {
   const fresh = initialState();
   if (typeof window === "undefined") return fresh;
   try {
+    window.localStorage.removeItem("order-link-demo-v1"); // older shape
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return fresh;
     const saved = JSON.parse(raw) as Partial<Persisted>;
@@ -133,12 +157,13 @@ function loadPersisted(): State {
       ...fresh,
       ...saved,
       settings: { ...fresh.settings, ...saved.settings },
+      codBlocked: saved.codBlocked ?? [],
     };
     // Steps driven by timers can't resume after a reload; step back to where they started.
     if (restored.draft.status === "loading")
       restored.draft = { ...restored.draft, status: "editing" };
     if (restored.buyer?.step === "checking")
-      restored.buyer = { ...restored.buyer, step: "payment" };
+      restored.buyer = { ...restored.buyer, step: "address" };
     return restored;
   } catch {
     return fresh;
@@ -156,6 +181,7 @@ function persist(s: State) {
     draft: s.draft,
     linkOrderId: s.linkOrderId,
     buyer: s.buyer,
+    codBlocked: s.codBlocked,
     linksCreated: s.linksCreated,
     orderSeq: s.orderSeq,
   };
@@ -203,11 +229,33 @@ export function useStore<T>(selector: (s: State) => T): T {
   );
 }
 
+/** Toasts belong to the screen that raised them. */
+function clearToasts() {
+  toast.dismiss();
+}
+
+/** Most recent past order from this phone that has a full address. */
+export function lastAddressFor(phone: string, orders: Order[]): Order | undefined {
+  const p = normalizePhone(phone);
+  if (!p) return undefined;
+  return orders
+    .filter(
+      (o) => normalizePhone(o.buyerPhone) === p && o.address && !isPlaceholderAddress(o.address),
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+function now() {
+  return new Date().toISOString();
+}
+
 // ---------- actions ----------
 
 export const actions = {
   resetDemo() {
     clearPersisted();
+    clearToasts();
+    // Restores Balanced, ₹49 COD fee, free shipping, the seed orders and an empty COD-not-allowed list.
     state = initialState(state.aiAvailable);
     emit();
   },
@@ -215,27 +263,40 @@ export const actions = {
     setState({ aiAvailable });
   },
   setView(view: State["view"]) {
-    // Switching phones always dismisses the share sheet; land on the order book if it was open.
+    clearToasts();
+    // Switching phones always closes any sheet; after the link sheet, land on the order book.
     setState((s) =>
-      s.shareOrderId
-        ? { view, shareOrderId: null, tab: "orders", screen: { kind: "tab" } }
-        : { view },
+      s.sheet?.kind === "link"
+        ? { view, sheet: null, tab: "orders", screen: { kind: "tab" } }
+        : { view, sheet: null },
     );
   },
-  closeShareSheet() {
-    setState({ shareOrderId: null, tab: "orders", screen: { kind: "tab" } });
+  openSheet(kind: Sheet["kind"], orderId: string) {
+    clearToasts();
+    setState({ sheet: { kind, orderId } });
+  },
+  closeSheet() {
+    setState((s) =>
+      s.sheet?.kind === "link"
+        ? { sheet: null, tab: "orders", screen: { kind: "tab" } }
+        : { sheet: null },
+    );
   },
   setTab(tab: SellerTab) {
-    setState({ tab, screen: { kind: "tab" } });
+    clearToasts();
+    setState({ tab, screen: { kind: "tab" }, sheet: null });
   },
   openNewOrder() {
-    setState({ screen: { kind: "new" }, draft: emptyDraft(), shareOrderId: null });
+    clearToasts();
+    setState({ screen: { kind: "new" }, draft: emptyDraft(), sheet: null });
   },
   openOrder(id: string) {
-    setState({ screen: { kind: "order", id } });
+    clearToasts();
+    setState({ screen: { kind: "order", id }, sheet: null });
   },
   back() {
-    setState({ screen: { kind: "tab" } });
+    clearToasts();
+    setState({ screen: { kind: "tab" }, sheet: null });
   },
   updateDraft(patch: Partial<DraftState>) {
     setState((s) => ({ draft: { ...s.draft, ...patch } }));
@@ -255,24 +316,35 @@ export const actions = {
     }));
   },
   addTimeline(id: string, label: string) {
-    actions.updateOrder(id, (o) => ({
-      timeline: [...o.timeline, { label, at: new Date().toISOString() }],
-    }));
+    actions.updateOrder(id, (o) => ({ timeline: [...o.timeline, { label, at: now() }] }));
   },
 
-  /** Turn the confirmed draft into an order + link. */
+  /** Turn the confirmed draft into an order + link, and open the share sheet. */
   createLink(): Order {
     const s = state;
     const d = s.draft;
     const linkCode = s.linksCreated === 0 ? "AB12CD" : randomCode();
+    const phone = d.buyerPhone.trim();
+    let address = isPlaceholderAddress(d.addressText) ? "" : d.addressText.trim();
+    let pincode = d.pincode.trim();
+    let addressSource: Order["addressSource"];
+    if (d.useSavedAddress && !address) {
+      const last = lastAddressFor(phone, s.orders);
+      if (last?.address) {
+        address = last.address;
+        pincode = last.pincode ?? pincode;
+        addressSource = "last_order";
+      }
+    }
     const order: Order = {
       id: `ORD-${s.orderSeq}`,
       linkCode,
-      createdAt: new Date().toISOString(),
-      buyerName: d.buyerName.trim() || "Buyer",
-      buyerPhone: d.buyerPhone.trim(),
-      address: d.addressText.trim() || undefined,
-      pincode: d.pincode.trim() || undefined,
+      createdAt: now(),
+      buyerName: titleCaseName(d.buyerName) || "Buyer",
+      buyerPhone: phone,
+      address: address || undefined,
+      pincode: pincode || undefined,
+      addressSource,
       lines: d.lines.map((l) => ({ ...l })),
       discount: d.discount,
       status: "awaiting_payment",
@@ -281,13 +353,14 @@ export const actions = {
       codFee: 0,
       shippingCharged: 0,
       uncertain: d.uncertain,
-      timeline: [{ label: "Link sent", at: new Date().toISOString() }],
+      timeline: [{ label: "Link sent", at: now() }],
     };
+    clearToasts();
     setState({
       orders: [order, ...s.orders],
       linksCreated: s.linksCreated + 1,
       orderSeq: s.orderSeq + 1,
-      shareOrderId: order.id,
+      sheet: { kind: "link", orderId: order.id },
       linkOrderId: order.id,
       buyer: {
         orderId: order.id,
@@ -296,6 +369,8 @@ export const actions = {
         phone: order.buyerPhone,
         address: order.address ?? "",
         pincode: order.pincode ?? "",
+        city: "",
+        state: "",
         suggestionHandled: false,
       },
     });
@@ -310,20 +385,55 @@ export const actions = {
   saveBuyerDetails() {
     const b = state.buyer;
     if (!b) return;
-    actions.updateOrder(b.orderId, {
-      buyerName: b.name.trim() || "Buyer",
+    actions.updateOrder(b.orderId, (o) => ({
+      buyerName: titleCaseName(b.name) || "Buyer",
       buyerPhone: b.phone.trim(),
       address: b.address.trim(),
       pincode: b.pincode.trim(),
+      city: b.city.trim() || undefined,
+      state: b.state.trim() || undefined,
+      // Keep the "from last order" note only while the buyer left that address unchanged.
+      addressSource:
+        o.addressSource === "last_order" && o.address === b.address.trim()
+          ? "last_order"
+          : undefined,
+    }));
+  },
+
+  /** Score the order from the buyer's details; the payment screen shows only what this allows. */
+  runRiskCheck(): RiskResult | null {
+    const s = state;
+    const b = s.buyer;
+    const order = b && s.orders.find((o) => o.id === b.orderId);
+    if (!b || !order) return null;
+    const risk = scoreRisk({
+      phone: b.phone,
+      address: b.address,
+      pincode: b.pincode,
+      orderValue: orderValue(order.lines, order.discount),
+      lines: order.lines,
+      strictness: s.settings.strictness,
+      pastOrders: s.orders,
+      excludeOrderId: order.id,
+      codBlockedPhones: s.codBlocked.map((c) => c.phone),
+    });
+    actions.updateBuyer({ risk });
+    return risk;
+  },
+
+  /** Store the risk decision and the seller-facing verdict once the buyer has chosen. */
+  recordOutcome(orderId: string, outcome: RiskOutcome) {
+    const risk = state.buyer?.orderId === orderId ? state.buyer.risk : undefined;
+    if (!risk) return;
+    actions.updateOrder(orderId, {
+      risk,
+      verdict: sellerVerdict(risk, outcome, formatINR),
+      verdictSource: "template",
     });
   },
 
   /** Online payment succeeded in the mock checkout. */
-  completePayment(
-    orderId: string,
-    purpose: "prepaid" | "partial" | "prepaid_after_risk",
-    amount: number,
-  ) {
+  completePayment(orderId: string, purpose: "prepaid" | "partial", amount: number) {
     const s = state;
     const order = s.orders.find((o) => o.id === orderId);
     if (!order) return;
@@ -336,10 +446,7 @@ export const actions = {
         codFee: prices.codFee,
         shippingCharged: prices.codShipping,
       });
-      actions.addTimeline(
-        orderId,
-        `Part paid (${"₹" + amount.toLocaleString("en-IN")}), rest on delivery`,
-      );
+      actions.addTimeline(orderId, `Part paid (${formatINR(amount)}), rest on delivery`);
     } else {
       actions.updateOrder(orderId, {
         status: "paid",
@@ -350,6 +457,7 @@ export const actions = {
       });
       actions.addTimeline(orderId, "Paid");
     }
+    actions.recordOutcome(orderId, purpose === "partial" ? "partial" : "prepaid");
   },
 
   confirmCod(orderId: string) {
@@ -365,6 +473,86 @@ export const actions = {
       shippingCharged: prices.codShipping,
     });
     actions.addTimeline(orderId, "COD confirmed");
+    actions.recordOutcome(orderId, "cod");
+  },
+
+  // ---------- shipping & outcomes ----------
+
+  /** Seller booked the parcel with their own courier. Opens the shipping-update share sheet. */
+  shipOrder(orderId: string, courier: Courier, awb: string) {
+    const tracking = awb.trim();
+    actions.updateOrder(orderId, {
+      status: "shipped",
+      courier,
+      awb: tracking || undefined,
+      shippedAt: now(),
+    });
+    actions.addTimeline(
+      orderId,
+      `Shipped via ${courier}${tracking ? ` · tracking ${tracking}` : ""}`,
+    );
+    setState({ sheet: { kind: "ship_update", orderId } });
+  },
+
+  markDelivered(orderId: string, by: "seller" | "auto" | "upi") {
+    const order = state.orders.find((o) => o.id === orderId);
+    if (!order || order.status !== "shipped") return;
+    const online = order.paymentMode === "prepaid" || order.paymentMode === "partial";
+    actions.updateOrder(orderId, {
+      status: "delivered",
+      deliveredBy: by,
+      paymentVerified: online || by === "upi",
+      // Cash collected at the door (or by UPI) settles the rest of a COD order.
+      paidAmount: order.paymentMode === "prepaid" ? order.paidAmount : orderTotal(order),
+    });
+    if (by === "upi") actions.addTimeline(orderId, "Paid by UPI at the doorstep");
+    actions.addTimeline(
+      orderId,
+      by === "seller"
+        ? "Delivered (marked by you)"
+        : by === "auto"
+          ? "Delivered (auto-marked 10 days after shipping)"
+          : "Delivered",
+    );
+  },
+
+  /** Parcel came back. The buyer's number goes on the COD-not-allowed list. */
+  markReturned(orderId: string) {
+    const order = state.orders.find((o) => o.id === orderId);
+    if (!order || order.status !== "shipped") return;
+    actions.updateOrder(orderId, { status: "refused" });
+    actions.addTimeline(orderId, "Returned to seller");
+    if (order.buyerPhone) actions.blockPhone(order.buyerPhone, order.buyerName);
+  },
+
+  /** Any order left in Shipped for 10 days is treated as delivered. */
+  applyAutoDelivery() {
+    const cutoff = Date.now() - AUTO_DELIVER_MS;
+    for (const o of state.orders) {
+      if (o.status === "shipped" && o.shippedAt && new Date(o.shippedAt).getTime() <= cutoff)
+        actions.markDelivered(o.id, "auto");
+    }
+  },
+
+  /** Demo shortcut: pretend 10 days have passed since this order shipped. */
+  simulateTenDays(orderId: string) {
+    actions.updateOrder(orderId, {
+      shippedAt: new Date(Date.now() - AUTO_DELIVER_MS - 60_000).toISOString(),
+    });
+    actions.applyAutoDelivery();
+  },
+
+  blockPhone(phone: string, name: string) {
+    setState((s) =>
+      s.codBlocked.some((c) => normalizePhone(c.phone) === normalizePhone(phone))
+        ? {}
+        : { codBlocked: [...s.codBlocked, { phone, name, at: now() }] },
+    );
+  },
+  unblockPhone(phone: string) {
+    setState((s) => ({
+      codBlocked: s.codBlocked.filter((c) => normalizePhone(c.phone) !== normalizePhone(phone)),
+    }));
   },
 };
 

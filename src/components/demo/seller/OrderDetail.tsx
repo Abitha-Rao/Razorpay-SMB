@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   Btn,
   Card,
+  MarkedByYou,
   ScreenHeader,
   SectionTitle,
   StatusChip,
@@ -18,6 +19,7 @@ import {
   orderValue,
   subtotal,
 } from "@/lib/demo/money";
+import { fullAddress, trackingUrl } from "@/lib/demo/shipping";
 import { actions, useStore } from "@/lib/demo/store";
 import type { Order } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
@@ -36,7 +38,7 @@ function upcomingSteps(o: Order): string[] {
   const steps: string[] = [];
   if (!done.has("Opened")) steps.push("Opened");
   if (o.status === "awaiting_payment") steps.push("Paid / COD confirmed");
-  if (!done.has("Shipped")) steps.push("Shipped");
+  if (!o.shippedAt) steps.push("Shipped");
   steps.push("Delivered");
   return steps;
 }
@@ -50,24 +52,26 @@ export function OrderDetail({ id }: { id: string }) {
   const total = orderTotal(order);
   const due = dueOnDelivery(order);
   const canShip = ["paid", "cod_confirmed", "partial_paid"].includes(order.status);
+  const isCod = order.paymentMode === "cod" || order.paymentMode === "partial";
+  const track = trackingUrl(order);
 
   return (
     <div className="pb-8">
       <ScreenHeader
         title={order.id}
         onBack={actions.back}
-        right={<StatusChip status={order.status} />}
+        right={
+          <div className="flex items-center gap-1.5">
+            {order.deliveredBy === "seller" && <MarkedByYou />}
+            <StatusChip status={order.status} />
+          </div>
+        }
       />
       <div className="space-y-4 px-4 pt-4">
         <div>
           <p className="text-lg font-semibold text-navy">{order.buyerName}</p>
           <p className="text-sm text-navy/60">{order.buyerPhone || "No phone"}</p>
-          {order.address && (
-            <p className="mt-1 text-sm text-navy/70">
-              {order.address}
-              {order.pincode && !order.address.includes(order.pincode) ? `, ${order.pincode}` : ""}
-            </p>
-          )}
+          {order.address && <p className="mt-1 text-sm text-navy/70">{fullAddress(order)}</p>}
         </div>
 
         {order.risk && (
@@ -89,7 +93,7 @@ export function OrderDetail({ id }: { id: string }) {
                     <span className="font-mono">{r.points > 0 ? `+${r.points}` : r.points}</span>
                   </li>
                 ))}
-                {order.risk.customForcedPrepaid && (
+                {order.risk.prepaidReason === "custom" && (
                   <li>Custom orders are prepaid only on this strictness</li>
                 )}
               </ul>
@@ -138,53 +142,118 @@ export function OrderDetail({ id }: { id: string }) {
         <Card>
           <SectionTitle>Payment</SectionTitle>
           <Line label="Mode" value={PAY_LABEL[order.paymentMode]} />
-          <Line label="Collected online" value={formatINR(order.paidAmount)} />
+          <Line label="Collected so far" value={formatINR(order.paidAmount)} />
           {due > 0 && <Line label="To collect on delivery" value={formatINR(due)} />}
+          {order.status === "delivered" && (
+            <Line
+              label="Payment"
+              value={
+                order.paymentVerified
+                  ? order.deliveredBy === "upi"
+                    ? "Verified · UPI at doorstep"
+                    : "Verified · paid online"
+                  : "Cash – not verified"
+              }
+            />
+          )}
         </Card>
 
         <Card>
-          <SectionTitle>Timeline</SectionTitle>
+          <SectionTitle
+            action={
+              track ? (
+                <a
+                  href={track}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mb-2 text-xs font-semibold text-rzp"
+                >
+                  Track on {order.courier} ↗
+                </a>
+              ) : undefined
+            }
+          >
+            Timeline
+          </SectionTitle>
           <Timeline events={order.timeline} upcoming={upcomingSteps(order)} />
         </Card>
 
-        {canShip && (
-          <Btn
-            size="lg"
-            className="w-full"
-            onClick={() => {
-              actions.updateOrder(order.id, { status: "shipped" });
-              actions.addTimeline(order.id, "Shipped");
-              toast.success("Marked as shipped");
-            }}
-          >
-            Mark as shipped
-          </Btn>
-        )}
-        {order.status === "shipped" && (
-          <Btn
-            size="lg"
-            variant="success"
-            className="w-full"
-            onClick={() => {
-              const collected =
-                order.paymentMode === "prepaid" ? order.paidAmount : order.paidAmount + due;
-              actions.updateOrder(order.id, { status: "delivered", paidAmount: collected });
-              actions.addTimeline(order.id, "Delivered");
-              toast.success("Marked as delivered");
-            }}
-          >
-            Mark as delivered
-          </Btn>
-        )}
         {order.status === "awaiting_payment" && (
-          <Btn
-            variant="secondary"
-            size="lg"
-            className="w-full"
-            onClick={() => toast("Reminder sent (simulated)")}
-          >
-            Send payment reminder
+          <Btn size="lg" className="w-full" onClick={() => actions.openSheet("remind", order.id)}>
+            Remind buyer
           </Btn>
+        )}
+
+        {canShip && (
+          <>
+            <Btn size="lg" className="w-full" onClick={() => actions.openSheet("ship", order.id)}>
+              Ship order
+            </Btn>
+            {isCod && (
+              <Btn
+                variant="secondary"
+                size="lg"
+                className="w-full"
+                onClick={() => actions.openSheet("cod_confirm", order.id)}
+              >
+                Confirm COD with buyer
+              </Btn>
+            )}
+          </>
+        )}
+
+        {order.status === "shipped" && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Btn
+                variant="success"
+                size="lg"
+                onClick={() => {
+                  actions.markDelivered(order.id, "seller");
+                  toast.success("Marked as delivered");
+                }}
+              >
+                Mark as delivered
+              </Btn>
+              <Btn
+                variant="danger"
+                size="lg"
+                onClick={() => {
+                  actions.markReturned(order.id);
+                  toast(`Marked as returned · ${order.buyerName} is now prepaid only`);
+                }}
+              >
+                Mark as returned
+              </Btn>
+            </div>
+            <Btn
+              variant="secondary"
+              className="w-full"
+              onClick={() => actions.openSheet("ship_update", order.id)}
+            >
+              Share shipping update
+            </Btn>
+            <p className="text-center text-[11px] text-navy/45">
+              If neither is tapped, this becomes Delivered 10 days after shipping.
+            </p>
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 rounded-xl border border-dashed border-navy/20 px-3 py-2 text-xs">
+              <span className="text-navy/40">Demo:</span>
+              <button
+                className="font-medium text-rzp"
+                onClick={() => actions.simulateTenDays(order.id)}
+              >
+                Simulate 10 days later
+              </button>
+              {isCod && (
+                <button
+                  className="font-medium text-rzp"
+                  onClick={() => actions.markDelivered(order.id, "upi")}
+                >
+                  Simulate doorstep UPI payment
+                </button>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

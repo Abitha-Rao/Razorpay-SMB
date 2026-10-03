@@ -37,7 +37,7 @@ function Index() {
   return (
     <>
       <PhoneShell />
-      <Toaster position="top-center" duration={2200} />
+      <Toaster position="top-center" duration={3000} />
     </>
   );
 }

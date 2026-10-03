@@ -4,7 +4,15 @@
  */
 import { upfrontAmount } from "./money";
 import { TIER3_PINCODES } from "./seed";
-import type { Order, OrderLine, RiskReason, RiskResult, RiskTier, Strictness } from "./types";
+import type {
+  Order,
+  OrderLine,
+  RiskOutcome,
+  RiskReason,
+  RiskResult,
+  RiskTier,
+  Strictness,
+} from "./types";
 
 export const RISK_POINTS = {
   new_phone: 30,
@@ -89,7 +97,14 @@ export type RiskInput = {
   strictness: Strictness;
   pastOrders: Order[];
   excludeOrderId?: string;
+  /** Phones the seller put on the "COD not allowed" list. */
+  codBlockedPhones?: string[];
 };
+
+export function isCodBlocked(phone: string, blocked: string[] = []): boolean {
+  const p = normalizePhone(phone);
+  return !!p && blocked.some((b) => normalizePhone(b) === p);
+}
 
 export function scoreRisk(input: RiskInput): RiskResult {
   const reasons: RiskReason[] = [];
@@ -105,14 +120,20 @@ export function scoreRisk(input: RiskInput): RiskResult {
     reasons.push({
       code: "past_refusal",
       points: RISK_POINTS.past_refusal,
-      label: "This phone refused a COD parcel before",
+      label: "This phone returned a COD parcel before",
     });
-  if (assessAddress(input.address).confidence === "low")
+  const addr = assessAddress(input.address);
+  if (addr.confidence === "low") {
+    const noHouse = addr.missing.includes("House or flat number");
     reasons.push({
       code: "low_address",
       points: RISK_POINTS.low_address,
-      label: "Address confidence is low",
+      label: noHouse
+        ? "Address has no house or flat number"
+        : "Address has no street (landmark only)",
+      detail: noHouse ? "no_house" : "no_street",
     });
+  }
   if (TIER3_PINCODES.includes(input.pincode.trim()))
     reasons.push({
       code: "tier3_pincode",
@@ -138,6 +159,13 @@ export function scoreRisk(input: RiskInput): RiskResult {
       points: RISK_POINTS.repeat_buyer,
       label: `Repeat buyer with ${history.delivered} delivered orders`,
     });
+  const blocked = isCodBlocked(input.phone, input.codBlockedPhones);
+  if (blocked)
+    reasons.push({
+      code: "cod_blocked",
+      points: 0,
+      label: "On your COD-not-allowed list",
+    });
 
   const score = Math.max(
     0,
@@ -147,13 +175,15 @@ export function scoreRisk(input: RiskInput): RiskResult {
     ),
   );
   const t = THRESHOLDS[input.strictness];
-  let tier: RiskTier = score >= t.high ? "high" : score >= t.medium ? "medium" : "low";
+  const tier: RiskTier = score >= t.high ? "high" : score >= t.medium ? "medium" : "low";
 
-  // Custom orders default to prepaid only in Balanced and Strict.
-  const customForcedPrepaid = hasCustom && input.strictness !== "relaxed";
-  if (customForcedPrepaid) tier = "high";
-
-  if (tier === "high") return { score, tier, reasons, action: "prepaid_only", customForcedPrepaid };
+  // Prepaid only: the seller blocked this number, custom orders (Balanced and Strict), or a high score.
+  if (blocked)
+    return { score, tier: "high", reasons, action: "prepaid_only", prepaidReason: "blocked" };
+  if (hasCustom && input.strictness !== "relaxed")
+    return { score, tier: "high", reasons, action: "prepaid_only", prepaidReason: "custom" };
+  if (tier === "high")
+    return { score, tier, reasons, action: "prepaid_only", prepaidReason: "score" };
   if (tier === "medium")
     return {
       score,
@@ -162,41 +192,83 @@ export function scoreRisk(input: RiskInput): RiskResult {
       action: "partial_upfront",
       upfrontAmount: upfrontAmount(input.orderValue),
     };
-  return { score, tier, reasons, action: "cod_confirmed" };
+  return { score, tier, reasons, action: "cod_allowed" };
 }
 
-const PLAIN: Record<RiskReason["code"], string> = {
-  new_phone: "first order from this number",
-  past_refusal: "this number refused a COD parcel before",
-  low_address: "address looked incomplete",
-  tier3_pincode: "this pincode sees more returns",
-  high_value: "the order is above ₹3,000",
-  custom_line: "it's a custom-made item",
-  repeat_buyer: "repeat buyer",
-};
+/** One-line reason shown to the buyer when only "Pay now" is offered. */
+export function buyerPrepaidReason(risk: RiskResult): string {
+  if (risk.prepaidReason === "custom")
+    return "This order has a custom item, so the seller needs payment upfront.";
+  return "COD isn't available for this order.";
+}
+
+/** Seller-facing phrases: about the buyer, in the third person. */
+function reasonPhrase(r: RiskReason): string {
+  switch (r.code) {
+    case "new_phone":
+      return "new number";
+    case "past_refusal":
+      return "this number returned a COD parcel before";
+    case "low_address":
+      return r.detail === "no_house"
+        ? "the address had no house number"
+        : "the address had no street";
+    case "tier3_pincode":
+      return "a pincode with more returns";
+    case "high_value":
+      return "order above ₹3,000";
+    case "custom_line":
+      return "custom item";
+    case "repeat_buyer":
+      return r.label.toLowerCase();
+    case "cod_blocked":
+      return "number is on your COD-not-allowed list";
+  }
+}
 
 function joinPlain(parts: string[]): string {
   if (parts.length <= 1) return parts[0] ?? "";
   return parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
 }
 
-export function actionSentence(risk: RiskResult, formatINR: (n: number) => string): string {
-  if (risk.action === "partial_upfront")
-    return `Asked for ${formatINR(risk.upfrontAmount ?? 0)} upfront.`;
-  if (risk.action === "prepaid_only")
-    return risk.customForcedPrepaid
-      ? "Custom orders are prepaid only, so COD was not offered."
-      : "Asked to pay in full before shipping.";
-  return "COD confirmed.";
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** Template verdict, used when Claude isn't available (and shown instantly before Claude replies). */
-export function templateVerdict(risk: RiskResult, formatINR: (n: number) => string): string {
-  const tierWord = risk.tier.charAt(0).toUpperCase() + risk.tier.slice(1);
-  const positives = risk.reasons.filter((r) => r.points > 0).map((r) => PLAIN[r.code]);
-  const repeat = risk.reasons.find((r) => r.code === "repeat_buyer");
-  let why = joinPlain(positives);
-  if (repeat) why = why ? `${why}, but ${repeat.label.toLowerCase()}` : repeat.label.toLowerCase();
-  if (!why) why = "nothing unusual about this order";
-  return `${tierWord} risk: ${why}. ${actionSentence(risk, formatINR)}`;
+/** What happened, in seller-facing words, e.g. "so we asked for ₹490 upfront". */
+export function outcomePhrase(
+  risk: RiskResult,
+  outcome: RiskOutcome,
+  formatINR: (n: number) => string,
+): string {
+  if (risk.action === "prepaid_only") return "so COD was switched off and the buyer paid upfront";
+  if (risk.action === "partial_upfront") {
+    const ask = `so we asked for ${formatINR(risk.upfrontAmount ?? 0)} upfront`;
+    return outcome === "prepaid" ? `${ask}; the buyer paid in full instead` : ask;
+  }
+  return outcome === "prepaid"
+    ? "so COD was offered; the buyer chose to pay upfront"
+    : "so COD was allowed";
+}
+
+/**
+ * Template verdict for the seller's order page, e.g.
+ * "New number and the address had no street, so we asked for ₹490 upfront."
+ */
+export function sellerVerdict(
+  risk: RiskResult,
+  outcome: RiskOutcome,
+  formatINR: (n: number) => string,
+): string {
+  // When the seller blocked the number or the order is custom, that alone explains the decision.
+  const key =
+    risk.prepaidReason === "blocked"
+      ? risk.reasons.filter((r) => r.code === "cod_blocked")
+      : risk.prepaidReason === "custom"
+        ? risk.reasons.filter((r) => r.code === "custom_line")
+        : risk.reasons.filter((r) => r.points !== 0);
+  const why = key.length
+    ? capitalise(joinPlain(key.map(reasonPhrase)))
+    : "Nothing unusual about this order";
+  return `${why}, ${outcomePhrase(risk, outcome, formatINR)}.`;
 }

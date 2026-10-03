@@ -12,6 +12,8 @@ export function PhoneShell() {
   const hasLink = useStore((s) => s.linkOrderId !== null);
 
   useEffect(() => {
+    // Orders left in "Shipped" for 10 days count as delivered.
+    actions.applyAutoDelivery();
     getAiStatus()
       .then((r) => actions.setAiAvailable(r.available))
       .catch(() => actions.setAiAvailable(false));

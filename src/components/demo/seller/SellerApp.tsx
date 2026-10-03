@@ -4,6 +4,7 @@ import { Home } from "@/components/demo/seller/Home";
 import { NewOrder } from "@/components/demo/seller/NewOrder";
 import { OrderDetail } from "@/components/demo/seller/OrderDetail";
 import { Orders } from "@/components/demo/seller/Orders";
+import { SheetHost } from "@/components/demo/seller/Sheets";
 import { SettingsScreen } from "@/components/demo/seller/Settings";
 import { Summary } from "@/components/demo/seller/Summary";
 import { actions, useStore, type SellerTab } from "@/lib/demo/store";
@@ -77,6 +78,7 @@ export function SellerApp() {
           );
         })}
       </nav>
+      <SheetHost />
     </div>
   );
 }

@@ -12,11 +12,37 @@ export function subtotal(lines: OrderLine[]): number {
   return lines.reduce((sum, l) => sum + lineTotal(l), 0);
 }
 
+export const MAX_PERCENT_DISCOUNT = 90;
+
+/**
+ * Keep a discount within limits: at most 90%, and a flat discount at most subtotal − ₹1,
+ * so an order can never be free. Returns the capped discount and a warning if it changed.
+ */
+export function capDiscount(
+  lines: OrderLine[],
+  discount: Discount,
+): { discount: Discount; warning: string | null } {
+  if (!discount || !(discount.value > 0)) return { discount: null, warning: null };
+  if (discount.type === "percent" && discount.value > MAX_PERCENT_DISCOUNT)
+    return {
+      discount: { type: "percent", value: MAX_PERCENT_DISCOUNT },
+      warning: `Discount capped at ${MAX_PERCENT_DISCOUNT}%`,
+    };
+  const max = Math.max(0, subtotal(lines) - 1);
+  if (discount.type === "flat" && discount.value > max)
+    return {
+      discount: { type: "flat", value: max },
+      warning: `Discount capped at ${formatINR(max)} (subtotal − ₹1)`,
+    };
+  return { discount, warning: null };
+}
+
 export function discountAmount(lines: OrderLine[], discount: Discount): number {
-  if (!discount || !discount.value) return 0;
+  const capped = capDiscount(lines, discount).discount;
+  if (!capped) return 0;
   const sub = subtotal(lines);
-  const raw = discount.type === "percent" ? (sub * discount.value) / 100 : discount.value;
-  return Math.min(Math.max(0, Math.round(raw)), sub);
+  const raw = capped.type === "percent" ? (sub * capped.value) / 100 : capped.value;
+  return Math.min(Math.max(0, Math.round(raw)), Math.max(0, sub - 1));
 }
 
 /** Order value = items after discount. This is what the link shows and what risk rules use. */

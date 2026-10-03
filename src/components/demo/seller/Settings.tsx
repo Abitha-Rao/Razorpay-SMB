@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Btn, Card, Field, ScreenHeader, SectionTitle, inputCls } from "@/components/demo/ui";
 import { formatINR } from "@/lib/demo/money";
 import { STRICTNESS_COPY, THRESHOLDS } from "@/lib/demo/risk";
-import { SELLER } from "@/lib/demo/seed";
+import { trustBadgeCount } from "@/lib/demo/seed";
 import { actions, useStore } from "@/lib/demo/store";
 import type { Strictness } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,8 @@ export function SettingsScreen() {
   const settings = useStore((s) => s.settings);
   const catalog = useStore((s) => s.catalog);
   const aiAvailable = useStore((s) => s.aiAvailable);
+  const orders = useStore((s) => s.orders);
+  const codBlocked = useStore((s) => s.codBlocked);
   const [adding, setAdding] = useState(false);
   const [item, setItem] = useState({ name: "", price: "", weight: "" });
 
@@ -58,6 +60,33 @@ export function SettingsScreen() {
           </div>
         </section>
 
+        <section>
+          <SectionTitle>COD not allowed</SectionTitle>
+          {codBlocked.length === 0 ? (
+            <p className="rounded-2xl bg-surface p-3 text-xs text-navy/55">
+              No numbers yet. When you mark a parcel as returned, the buyer's number is added here
+              and they'll only see Pay now.
+            </p>
+          ) : (
+            <ul className="divide-y divide-navy/8 rounded-2xl bg-surface px-3">
+              {codBlocked.map((c) => (
+                <li key={c.phone} className="flex items-center justify-between py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-navy">{c.name}</p>
+                    <p className="text-[11px] text-navy/50">{c.phone} · prepaid only</p>
+                  </div>
+                  <button
+                    className="text-xs font-semibold text-risk"
+                    onClick={() => actions.unblockPhone(c.phone)}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <section className="grid grid-cols-2 gap-3">
           <Field label="COD fee (₹)">
             <input
@@ -87,7 +116,7 @@ export function SettingsScreen() {
         <section className="space-y-2">
           <Toggle
             label="Show my completed-order count to buyers"
-            sub={`Buyers see “${SELLER.completedOrders} orders completed via Razorpay” on your link.`}
+            sub={`Buyers see “${trustBadgeCount(orders)} orders completed via Razorpay” on your link. Counts only payment-verified deliveries, minus returns.`}
             checked={settings.showOrderCount}
             onChange={(v) => actions.updateSettings({ showOrderCount: v })}
           />

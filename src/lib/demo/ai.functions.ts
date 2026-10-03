@@ -122,7 +122,13 @@ export const explainRiskFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ source: AiSource; text: string | null }> => {
     if (!data.useLive || !apiKey()) return { source: "fallback", text: null };
     try {
-      const user = JSON.stringify({ tier: data.tier, action: data.action, reasons: data.reasons });
+      const user = JSON.stringify({
+        tier: data.tier,
+        action: data.action,
+        reasons: data.reasons,
+        style:
+          "A short note on the seller's order page about this buyer, in the third person. Don't address the buyer. Example: 'New number and the address had no street, so we asked for ₹490 upfront.'",
+      });
       const text = await callClaude(VERDICT_SYSTEM_PROMPT, user, 200);
       return { source: "claude", text: text || null };
     } catch (err) {

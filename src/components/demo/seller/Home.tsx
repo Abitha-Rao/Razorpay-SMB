@@ -1,4 +1,4 @@
-import { Btn, OrderAmount, StatusChip } from "@/components/demo/ui";
+import { Btn, OrderAmount, OrderStatusTags } from "@/components/demo/ui";
 import { SELLER } from "@/lib/demo/seed";
 import { actions, useStore } from "@/lib/demo/store";
 
@@ -71,7 +71,7 @@ export function Home() {
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <OrderAmount order={o} />
-                <StatusChip status={o.status} />
+                <OrderStatusTags order={o} />
               </div>
             </button>
           </li>

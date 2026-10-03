@@ -1,6 +1,3 @@
-import { useEffect } from "react";
-import { toast } from "sonner";
-
 import {
   Btn,
   Card,
@@ -11,9 +8,16 @@ import {
   inputCls,
 } from "@/components/demo/ui";
 import { AI_TIMEOUT_MS, draftOrderFn } from "@/lib/demo/ai.functions";
-import { PRESETS, fallbackDraft } from "@/lib/demo/fallback";
+import {
+  PRESETS,
+  fallbackDraft,
+  isPlaceholderAddress,
+  titleCaseName,
+  wantsSavedAddress,
+} from "@/lib/demo/fallback";
 import {
   buyerPrices,
+  capDiscount,
   discountAmount,
   formatINR,
   isLineComplete,
@@ -21,8 +25,7 @@ import {
   subtotal,
   totalWeight,
 } from "@/lib/demo/money";
-import { SELLER } from "@/lib/demo/seed";
-import { actions, getState, newLineId, useStore } from "@/lib/demo/store";
+import { actions, getState, lastAddressFor, newLineId, useStore } from "@/lib/demo/store";
 import { withTimeout } from "@/lib/demo/timeout";
 import type { CatalogItem, DraftResult, OrderLine } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
@@ -65,7 +68,6 @@ export function NewOrder() {
   const draft = useStore((s) => s.draft);
   const catalog = useStore((s) => s.catalog);
   const settings = useStore((s) => s.settings);
-  const shareOrderId = useStore((s) => s.shareOrderId);
 
   async function runDraft() {
     const { draft: d, catalog: cat, settings: st } = getState();
@@ -81,23 +83,49 @@ export function NewOrder() {
     const wait = MIN_LOADING_MS - (Date.now() - started);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     const r = result.draft;
+    const lines = toLines(r, cat);
+    const phone = r.buyer_phone ?? d.from?.phone ?? "";
+    const uncertain = [...(r.uncertain ?? [])];
+
+    // "Same/old address" is a reference, not an address: look it up from this number's last order.
+    const placeholder = isPlaceholderAddress(r.address_text);
+    const wantsSaved = placeholder || (!r.address_text && wantsSavedAddress(d.chat));
+    const saved = wantsSaved ? lastAddressFor(phone, getState().orders) : undefined;
+    if (wantsSaved)
+      uncertain.push(
+        saved
+          ? `Buyer asked for the same address as last time – using the address from ${saved.id}`
+          : "Buyer asked for their old address, but this number has no past order – ask for it",
+      );
+
+    // Custom lines need a weight for shipping; flag any the chat didn't state.
+    r.lines.forEach((l, i) => {
+      if (lines[i]?.type === "custom" && !(typeof l.weight_kg === "number" && l.weight_kg > 0))
+        uncertain.push(`Check weight: ${lines[i]!.name || "custom item"}`);
+    });
+
+    const capped = capDiscount(lines, r.discount && r.discount.value ? r.discount : null);
+    const address = placeholder ? "" : (r.address_text ?? "");
     actions.updateDraft({
       status: "drafted",
       source: result.source,
-      lines: toLines(r, cat),
-      discount: r.discount && r.discount.value ? r.discount : null,
-      buyerName: r.buyer_name ?? d.from?.name ?? "",
-      buyerPhone: r.buyer_phone ?? d.from?.phone ?? "",
-      addressText: r.address_text ?? "",
-      pincode: r.pincode ?? r.address_text?.match(/\b[1-9]\d{5}\b/)?.[0] ?? "",
+      lines,
+      discount: capped.discount,
+      discountWarning: capped.warning,
+      buyerName: titleCaseName(r.buyer_name ?? d.from?.name ?? ""),
+      buyerPhone: phone,
+      addressText: address,
+      pincode: r.pincode ?? address.match(/\b[1-9]\d{5}\b/)?.[0] ?? "",
+      useSavedAddress: wantsSaved,
       paymentHint: r.payment_hint ?? "unknown",
-      uncertain: r.uncertain ?? [],
+      uncertain,
     });
   }
 
   const lines = draft.lines;
   const prices = buyerPrices(lines, draft.discount, settings);
   const allComplete = lines.length > 0 && lines.every(isLineComplete);
+  const canCreate = allComplete && prices.prepaidTotal > 0;
 
   return (
     <div className="pb-8">
@@ -197,21 +225,21 @@ export function NewOrder() {
             <Btn
               size="lg"
               className="w-full"
-              disabled={!allComplete}
+              disabled={!canCreate}
               onClick={() => actions.createLink()}
             >
               Create link
             </Btn>
-            {!allComplete && (
+            {!canCreate && (
               <p className="-mt-3 text-center text-xs text-[#b54708]">
-                Set a price and name for every line first.
+                {allComplete
+                  ? "The total can't be ₹0 – lower the discount."
+                  : "Set a price and name for every line first."}
               </p>
             )}
           </>
         )}
       </div>
-
-      {shareOrderId && <ShareSheet orderId={shareOrderId} />}
     </div>
   );
 }
@@ -230,48 +258,57 @@ function Row({ label, value, sub }: { label: string; value: string; sub?: string
 
 function DiscountRow() {
   const discount = useStore((s) => s.draft.discount);
+  const warning = useStore((s) => s.draft.discountWarning);
   const lines = useStore((s) => s.draft.lines);
   const type = discount?.type ?? "flat";
+
+  function setDiscount(next: { type: "flat" | "percent"; value: number }) {
+    const capped = capDiscount(lines, next.value > 0 ? next : null);
+    actions.updateDraft({
+      // Keep the chosen ₹/% type even at 0 so the toggle doesn't jump back.
+      discount: capped.discount ?? (next.value > 0 ? null : { type: next.type, value: 0 }),
+      discountWarning: capped.warning,
+    });
+  }
+
   return (
-    <div className="flex items-center justify-between gap-2 text-sm">
-      <span className="text-navy/65">Discount</span>
-      <div className="flex items-center gap-1.5">
-        <div className="flex overflow-hidden rounded-lg border border-navy/15 text-xs">
-          {(["flat", "percent"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() =>
-                actions.updateDraft({ discount: { type: t, value: discount?.value ?? 0 } })
-              }
-              className={cn(
-                "px-2 py-1",
-                type === t ? "bg-navy text-white" : "bg-white text-navy/70",
-              )}
-            >
-              {t === "flat" ? "₹" : "%"}
-            </button>
-          ))}
+    <div>
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="text-navy/65">Discount</span>
+        <div className="flex items-center gap-1.5">
+          <div className="flex overflow-hidden rounded-lg border border-navy/15 text-xs">
+            {(["flat", "percent"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setDiscount({ type: t, value: discount?.value ?? 0 })}
+                className={cn(
+                  "px-2 py-1",
+                  type === t ? "bg-navy text-white" : "bg-white text-navy/70",
+                )}
+              >
+                {t === "flat" ? "₹" : "%"}
+              </button>
+            ))}
+          </div>
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={discount?.value || ""}
+            placeholder="0"
+            onChange={(e) => setDiscount({ type, value: Math.max(0, Number(e.target.value) || 0) })}
+            className="w-16 rounded-lg border border-navy/15 px-2 py-1 text-right text-sm text-navy outline-none focus:border-rzp"
+          />
+          <span className="w-14 text-right font-medium text-navy">
+            {discountAmount(lines, discount)
+              ? "−" + formatINR(discountAmount(lines, discount))
+              : "₹0"}
+          </span>
         </div>
-        <input
-          type="number"
-          min={0}
-          inputMode="numeric"
-          value={discount?.value ?? ""}
-          placeholder="0"
-          onChange={(e) => {
-            const v = Math.max(0, Number(e.target.value) || 0);
-            actions.updateDraft({
-              discount: v ? { type, value: type === "percent" ? Math.min(v, 100) : v } : null,
-            });
-          }}
-          className="w-16 rounded-lg border border-navy/15 px-2 py-1 text-right text-sm text-navy outline-none focus:border-rzp"
-        />
-        <span className="w-14 text-right font-medium text-navy">
-          {discountAmount(lines, discount)
-            ? "−" + formatINR(discountAmount(lines, discount))
-            : "₹0"}
-        </span>
       </div>
+      {warning && (
+        <p className="mt-1 text-right text-[11px] font-medium text-[#b54708]">{warning}</p>
+      )}
     </div>
   );
 }
@@ -502,97 +539,5 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
         </div>
       )}
     </section>
-  );
-}
-
-function ShareSheet({ orderId }: { orderId: string }) {
-  const order = useStore((s) => s.orders.find((o) => o.id === orderId));
-  const settings = useStore((s) => s.settings);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") actions.closeShareSheet();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  if (!order) return null;
-
-  const total = buyerPrices(order.lines, order.discount, settings).prepaidTotal;
-  const first = order.buyerName && order.buyerName !== "Buyer" ? order.buyerName.split(" ")[0] : "";
-  const link = `rzp.io/ol/${order.linkCode}`;
-  const message = `Hi${first ? " " + first : ""}, here is your order from ${SELLER.name}: ${formatINR(total)}. Confirm address and pay here: ${link}`;
-  const openBuyer = { label: "Buyer view", onClick: () => actions.setView("buyer") };
-
-  return (
-    <div
-      className="absolute inset-0 z-30 flex items-end bg-navy/40"
-      onClick={() => actions.closeShareSheet()}
-    >
-      <div
-        role="dialog"
-        aria-label="Share order link"
-        className="w-full rounded-t-3xl bg-white px-4 pb-6 pt-3 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-navy/15" />
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h3 className="text-base font-semibold text-navy">Share order link</h3>
-            <p className="mb-3 text-xs text-navy/55">
-              {order.id} · {link}
-            </p>
-          </div>
-          <button
-            onClick={() => actions.closeShareSheet()}
-            aria-label="Close"
-            className="-mr-1 -mt-1 flex h-9 w-9 items-center justify-center rounded-full text-navy/60 hover:bg-surface"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-            >
-              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="mb-4 rounded-2xl bg-[#e7fbe6] p-3">
-          <p className="rounded-xl rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-relaxed text-[#111b21] shadow-sm">
-            {message}
-          </p>
-        </div>
-        <div className="space-y-2">
-          <Btn
-            size="lg"
-            className="w-full bg-[#25D366] hover:bg-[#1ebe5a]"
-            onClick={() => {
-              actions.closeShareSheet();
-              toast.success(`Sent to ${first || "the buyer"} on WhatsApp (simulated)`, {
-                action: openBuyer,
-              });
-            }}
-          >
-            Share on WhatsApp
-          </Btn>
-          <Btn
-            variant="secondary"
-            size="lg"
-            className="w-full"
-            onClick={() => {
-              navigator.clipboard?.writeText(message).catch(() => undefined);
-              actions.closeShareSheet();
-              toast("Link copied", { action: openBuyer });
-            }}
-          >
-            Copy link
-          </Btn>
-        </div>
-      </div>
-    </div>
   );
 }

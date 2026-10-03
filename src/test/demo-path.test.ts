@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { fallbackCleanAddress, fallbackDraft, PRESETS } from "@/lib/demo/fallback";
-import { buyerPrices, orderValue } from "@/lib/demo/money";
-import { scoreRisk, templateVerdict } from "@/lib/demo/risk";
-import { DEFAULT_SETTINGS, SEED_CATALOG, buildSeedOrders } from "@/lib/demo/seed";
-import { formatINR } from "@/lib/demo/money";
+import {
+  fallbackCleanAddress,
+  fallbackDraft,
+  isPlaceholderAddress,
+  PRESETS,
+  titleCaseName,
+  wantsSavedAddress,
+} from "@/lib/demo/fallback";
+import { buyerPrices, capDiscount, formatINR, orderValue } from "@/lib/demo/money";
+import { checkPincode } from "@/lib/demo/pincode";
+import { buyerPrepaidReason, scoreRisk, sellerVerdict } from "@/lib/demo/risk";
+import { DEFAULT_SETTINGS, SEED_CATALOG, buildSeedOrders, trustBadgeCount } from "@/lib/demo/seed";
+import { lastAddressFor } from "@/lib/demo/store";
 import type { OrderLine } from "@/lib/demo/types";
 
 const seed = buildSeedOrders();
@@ -75,8 +83,9 @@ describe("demo path: preset b (new COD buyer)", () => {
     expect(risk.score).toBe(45);
     expect(risk.tier).toBe("medium");
     expect(risk.upfrontAmount).toBe(490);
-    expect(templateVerdict(risk, formatINR)).toBe(
-      "Medium risk: first order from this number and address looked incomplete. Asked for ₹490 upfront.",
+    expect(risk.action).toBe("partial_upfront");
+    expect(sellerVerdict(risk, "partial", formatINR)).toBe(
+      "New number and the address had no street, so we asked for ₹490 upfront.",
     );
   });
 });
@@ -140,5 +149,115 @@ describe("fallback parser on a free-form chat", () => {
     expect(d.buyer_name).toBe("Kavya");
     expect(d.buyer_phone).toBe("9876501234");
     expect(d.payment_hint).toBe("prepaid");
+  });
+});
+
+describe("test 1: free-form COD chat in Balanced", () => {
+  const chat =
+    "hi, the green bandhani saree pls, cod. send to flat 12 b block near hanuman mandir sector 4 rohini delhi 110085. priya 9811204521";
+  const d = fallbackDraft(chat, SEED_CATALOG);
+
+  it("drafts the saree, Priya, her phone, the address and COD", () => {
+    expect(d.lines.map((l) => [l.catalog_id, l.qty])).toEqual([["saree-bandhani-green", 1]]);
+    expect(titleCaseName(d.buyer_name!)).toBe("Priya");
+    expect(d.buyer_phone).toBe("9811204521");
+    expect(d.address_text).toBe("flat 12 b block near hanuman mandir sector 4 rohini delhi 110085");
+    expect(d.pincode).toBe("110085");
+    expect(d.payment_hint).toBe("cod");
+  });
+
+  it("is medium risk with ₹490 upfront", () => {
+    const lines = linesFrom(chat);
+    const risk = scoreRisk({
+      phone: d.buyer_phone!,
+      address: fallbackCleanAddress(d.address_text!).clean_address,
+      pincode: "110085",
+      orderValue: orderValue(lines, null),
+      lines,
+      strictness: "balanced",
+      pastOrders: seed,
+    });
+    expect(risk.tier).toBe("medium");
+    expect(risk.upfrontAmount).toBe(490);
+  });
+});
+
+describe("test 2: regular buyer uses the saved address", () => {
+  it("detects 'old address' and finds Anjali's last address", () => {
+    expect(wantsSavedAddress(PRESETS[0]!.chat)).toBe(true);
+    expect(isPlaceholderAddress("my old address")).toBe(true);
+    expect(isPlaceholderAddress("Flat 12, old address road 110085")).toBe(false);
+    const last = lastAddressFor("98290 11223", seed);
+    expect(last?.address).toBe("C-14, Shanti Nagar, Durgapura, Jaipur");
+    expect(last?.pincode).toBe("302018");
+  });
+});
+
+describe("test 3: discount caps", () => {
+  const lines: OrderLine[] = [
+    { id: "1", type: "catalog", name: "Saree", qty: 1, unitPrice: 2450, weightKg: 0.6 },
+  ];
+  it("caps 150% at 90%", () => {
+    const c = capDiscount(lines, { type: "percent", value: 150 });
+    expect(c.discount).toEqual({ type: "percent", value: 90 });
+    expect(c.warning).toMatch(/90%/);
+  });
+  it("caps a flat discount at subtotal − ₹1", () => {
+    const c = capDiscount(lines, { type: "flat", value: 5000 });
+    expect(c.discount).toEqual({ type: "flat", value: 2449 });
+    expect(orderValue(lines, c.discount)).toBe(1);
+  });
+});
+
+describe("test 4: a returned parcel makes the number prepaid only", () => {
+  it("blocks COD for a number on the list, with the buyer-facing reason", () => {
+    const lines = linesFrom(PRESETS[0]!.chat);
+    const risk = scoreRisk({
+      phone: "98290 11223",
+      address: "C-14, Shanti Nagar, Durgapura, Jaipur",
+      pincode: "302018",
+      orderValue: 2400,
+      lines,
+      strictness: "balanced",
+      pastOrders: seed,
+      codBlockedPhones: ["9829011223"],
+    });
+    expect(risk.action).toBe("prepaid_only");
+    expect(buyerPrepaidReason(risk)).toBe("COD isn't available for this order.");
+  });
+
+  it("explains a custom order to the seller in the third person", () => {
+    const lines: OrderLine[] = [
+      { id: "1", type: "custom", name: "Lehenga", qty: 1, unitPrice: 4500, weightKg: 1.2 },
+    ];
+    const risk = scoreRisk({
+      phone: "98290 11223",
+      address: "C-14, Shanti Nagar, Durgapura, Jaipur",
+      pincode: "302018",
+      orderValue: 4500,
+      lines,
+      strictness: "balanced",
+      pastOrders: seed,
+    });
+    expect(sellerVerdict(risk, "prepaid", formatINR)).toBe(
+      "Custom item, so COD was switched off and the buyer paid upfront.",
+    );
+    expect(buyerPrepaidReason(risk)).toBe(
+      "This order has a custom item, so the seller needs payment upfront.",
+    );
+  });
+});
+
+describe("buyer page checks", () => {
+  it("validates pincodes and fills city/state", () => {
+    expect(checkPincode("999999").status).toBe("invalid");
+    expect(checkPincode("000000").status).toBe("invalid");
+    expect(checkPincode("1100").status).toBe("invalid");
+    expect(checkPincode("110085")).toEqual({ status: "ok", city: "Delhi", state: "Delhi" });
+    expect(checkPincode("744101").status).toBe("unserviceable");
+  });
+
+  it("trust badge starts at 128 on the seed", () => {
+    expect(trustBadgeCount(seed)).toBe(128);
   });
 });

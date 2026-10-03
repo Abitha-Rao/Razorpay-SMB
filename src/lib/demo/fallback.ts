@@ -49,9 +49,9 @@ const PRESET_DRAFTS: Record<Preset["key"], DraftResult> = {
     ],
     discount: null,
     payment_hint: "prepaid",
-    address_text: "C-14, Shanti Nagar, Durgapura, Jaipur",
-    pincode: "302018",
-    uncertain: ['"Old address" – using the address from Anjali\'s last order. Please confirm.'],
+    address_text: null,
+    pincode: null,
+    uncertain: [],
   },
   cod: {
     buyer_name: "Priya",
@@ -80,10 +80,9 @@ const PRESET_DRAFTS: Record<Preset["key"], DraftResult> = {
     lines: [
       {
         type: "custom",
-        name: "Maroon lehenga with gold border (made to order)",
+        name: "Maroon lehenga with gold border (custom)",
         qty: 1,
         unit_price: null,
-        weight_kg: 1.2,
       },
     ],
     discount: null,
@@ -162,14 +161,25 @@ export function fallbackDraft(
     : flat
       ? { type: "flat", value: Number(flat) }
       : null;
-  const nameMatch = chat.match(/\b(?:name|naam)\s*(?:is|:|-)?\s*([a-z]+)/i)?.[1];
+  // "name Kavya", or a name written just before the phone number ("priya 9811204521").
+  const NOT_NAMES =
+    /^(pls|please|cod|upi|no|number|phone|call|whatsapp|mob|mobile|ph|contact|is)$/i;
+  const beforePhone = chat.match(
+    /\b([a-z]{3,})[,\s]+(?:\+91[\s-]?)?[6-9][0-9x]{4}\s?[0-9x]{5}/i,
+  )?.[1];
+  const nameMatch =
+    chat.match(/\b(?:name|naam)\s*(?:is|:|-)?\s*([a-z]+)/i)?.[1] ??
+    (beforePhone && !NOT_NAMES.test(beforePhone) ? beforePhone : undefined);
   const buyerName = nameMatch
     ? nameMatch[0]!.toUpperCase() + nameMatch.slice(1).toLowerCase()
     : null;
 
   const phone =
     chat.match(/(?:\+91[\s-]?)?[6-9][0-9x]{4}\s?[0-9x]{5}/i)?.[0] ?? from?.phone ?? null;
-  const addressMatch = chat.match(/address\s*[:-]\s*([^\n]+?)(?:,\s*[a-z]+\s+[6-9][0-9x]{9}|$)/i);
+  // "address: …", "send to …" or "deliver to …", up to the sentence end or the name + phone.
+  const addressMatch = chat.match(
+    /(?:address\s*[:-]|send (?:it )?to|deliver (?:it )?to|ship (?:it )?to)\s*([^\n]+?)(?:\.\s|,\s*[a-z]+\s+[6-9][0-9x]{9}|$)/i,
+  );
   const pincode = chat.match(/\b[1-9]\d{5}\b/)?.[0] ?? null;
   const payment_hint = /\bcod\b|cash on delivery/i.test(chat)
     ? "cod"
@@ -246,4 +256,27 @@ export function fallbackCleanAddress(raw: string): AddressResult {
   const { confidence, missing } = assessAddress(clean_address);
   if (!pin) missing.push("Pincode");
   return { clean_address, missing, confidence };
+}
+
+/** "same address as last time", "send to my old address", "usual address"… */
+const SAVED_ADDRESS_RE =
+  /\b(same|old|last|previous|usual|earlier|purana)\b[\w\s]{0,20}\baddress\b|\baddress\b[\w\s]{0,20}\b(same|as last time|as before)\b/i;
+
+export function wantsSavedAddress(text: string | null | undefined): boolean {
+  return !!text && SAVED_ADDRESS_RE.test(text);
+}
+
+/** True when the "address" is really a reference to a saved one, not a deliverable address. */
+export function isPlaceholderAddress(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return wantsSavedAddress(text) && !/\d/.test(text);
+}
+
+/** "priya" → "Priya", "anjali VERMA" → "Anjali Verma". */
+export function titleCaseName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((w) => (w ? w[0]!.toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(" ");
 }

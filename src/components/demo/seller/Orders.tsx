@@ -1,6 +1,12 @@
 import { useState } from "react";
 
-import { FilterChip, OrderAmount, ScreenHeader, StatusChip, inputCls } from "@/components/demo/ui";
+import {
+  FilterChip,
+  OrderAmount,
+  ScreenHeader,
+  OrderStatusTags,
+  inputCls,
+} from "@/components/demo/ui";
 import { actions, useStore } from "@/lib/demo/store";
 import type { Order, OrderStatus } from "@/lib/demo/types";
 
@@ -12,7 +18,7 @@ const STATUS_FILTERS: { key: OrderStatus | "all"; label: string }[] = [
   { key: "partial_paid", label: "Partial paid" },
   { key: "shipped", label: "Shipped" },
   { key: "delivered", label: "Delivered" },
-  { key: "refused", label: "Refused" },
+  { key: "refused", label: "Returned" },
 ];
 
 const PAY_FILTERS = [
@@ -102,7 +108,7 @@ export function Orders() {
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <OrderAmount order={o} />
-                  <StatusChip status={o.status} />
+                  <OrderStatusTags order={o} />
                 </div>
               </button>
             </li>
