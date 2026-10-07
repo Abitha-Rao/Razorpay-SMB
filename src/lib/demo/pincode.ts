@@ -22,6 +22,7 @@ const CITY_BY_PREFIX: Record<string, string> = {
   "380": "Ahmedabad",
   "400": "Mumbai",
   "411": "Pune",
+  "452": "Indore",
   "500": "Hyderabad",
   "560": "Bengaluru",
   "600": "Chennai",

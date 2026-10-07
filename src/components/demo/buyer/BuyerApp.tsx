@@ -181,19 +181,33 @@ function AddressStep({ order }: { order: Order }) {
 
   function setPincode(pincode: string) {
     const check = checkPincode(pincode);
+    const current = getState().buyer;
+    // A city the buyer typed by hand is never replaced; the mismatch warning flags it instead.
+    const keepCity = current?.cityEdited ? { city: current.city } : null;
     if (check.status === "invalid" || check.status === "empty") {
       // An invalid pincode can't vouch for a city or state.
-      actions.updateBuyer({ pincode, city: "", state: "" });
+      actions.updateBuyer({ pincode, city: "", state: "", ...keepCity });
       return;
     }
     // Auto-fill city and state from the pincode. If the lookup has no city, use the one in the
     // (cleaned) address; the buyer can still edit it.
-    const address = getState().buyer?.address ?? "";
+    const address = current?.address ?? "";
     actions.updateBuyer({
       pincode,
-      city: check.city || cityFromAddress(address) || getState().buyer?.city || "",
+      city: check.city || cityFromAddress(address) || current?.city || "",
       state: check.state,
+      ...keepCity,
     });
+  }
+
+  /** Pincode lookup had no city: take a known city named in the address (Keep mine / edits). */
+  function fillCityFromAddress(address: string) {
+    const b = getState().buyer;
+    const check = checkPincode(b?.pincode ?? "");
+    if (!b || b.cityEdited || check.status === "invalid" || check.status === "empty" || check.city)
+      return;
+    const city = knownCityIn(address);
+    if (city) actions.updateBuyer({ city });
   }
 
   useEffect(() => {
@@ -207,8 +221,16 @@ function AddressStep({ order }: { order: Order }) {
 
   const pin = checkPincode(buyer.pincode);
   const pinCity = pin.status === "ok" || pin.status === "unserviceable" ? pin.city : "";
+  // A hand-typed city that differs from the pincode's, or a different known city in the address.
+  const typedCity = buyer.cityEdited ? buyer.city.trim() : "";
   const addressCity = knownCityIn(buyer.address);
-  const cityMismatch = !!pinCity && !!addressCity && pinCity !== addressCity;
+  const mismatchCity = !pinCity
+    ? ""
+    : typedCity && typedCity.toLowerCase() !== pinCity.toLowerCase()
+      ? typedCity
+      : addressCity && addressCity !== pinCity
+        ? addressCity
+        : "";
   const showPinError = pin.status === "invalid" && (pinTouched || buyer.pincode.length >= 6);
   const canContinue =
     buyer.name.trim() &&
@@ -255,9 +277,10 @@ function AddressStep({ order }: { order: Order }) {
             rows={3}
             className={cn(inputCls, "resize-none")}
             value={buyer.address}
-            onChange={(e) =>
-              actions.updateBuyer({ address: e.target.value, suggestionHandled: false })
-            }
+            onChange={(e) => {
+              actions.updateBuyer({ address: e.target.value, suggestionHandled: false });
+              fillCityFromAddress(e.target.value);
+            }}
             onBlur={(e) => void cleanup(e.target.value)}
           />
         </Field>
@@ -298,7 +321,10 @@ function AddressStep({ order }: { order: Order }) {
               <Btn
                 size="sm"
                 variant="ghost"
-                onClick={() => actions.updateBuyer({ suggestionHandled: true })}
+                onClick={() => {
+                  actions.updateBuyer({ suggestionHandled: true });
+                  fillCityFromAddress(buyer.address);
+                }}
               >
                 Keep mine
               </Btn>
@@ -329,6 +355,11 @@ function AddressStep({ order }: { order: Order }) {
             onChange={(e) => setPincode(e.target.value.replace(/\D/g, ""))}
             onBlur={() => setPinTouched(true)}
           />
+          {mismatchCity && (
+            <p className="mt-1.5 rounded-lg bg-warning/12 px-2.5 py-1.5 text-xs font-medium text-[#b54708]">
+              Address says {mismatchCity} but pincode is for {pinCity} – please check.
+            </p>
+          )}
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field
@@ -343,7 +374,12 @@ function AddressStep({ order }: { order: Order }) {
               className={inputCls}
               value={buyer.city}
               placeholder="City"
-              onChange={(e) => actions.updateBuyer({ city: e.target.value })}
+              onChange={(e) =>
+                actions.updateBuyer({
+                  city: e.target.value,
+                  cityEdited: e.target.value.trim() !== "",
+                })
+              }
             />
           </Field>
           <Field label="State">
@@ -355,11 +391,6 @@ function AddressStep({ order }: { order: Order }) {
             />
           </Field>
         </div>
-        {cityMismatch && (
-          <p className="rounded-lg bg-warning/12 px-2.5 py-1.5 text-xs font-medium text-[#b54708]">
-            Address and pincode don't match – please check
-          </p>
-        )}
       </Card>
       <p className="px-1 text-[11px] leading-relaxed text-navy/50">
         🔒 Your address is shared with {SELLER.name} and the courier only to deliver this order.

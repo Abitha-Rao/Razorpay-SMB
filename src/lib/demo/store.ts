@@ -56,6 +56,8 @@ export type BuyerFlow = {
   address: string;
   pincode: string;
   city: string;
+  /** The buyer typed the city themselves – never overwrite it from a lookup. */
+  cityEdited?: boolean | undefined;
   state: string;
   suggestion?: (AddressResult & { source: AiSource; forAddress: string }) | undefined;
   suggestionHandled: boolean;
