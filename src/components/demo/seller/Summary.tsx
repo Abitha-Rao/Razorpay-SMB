@@ -30,7 +30,11 @@ export function Summary() {
     : 0;
   const codOrders = month.filter(isCod);
   const refused = month.filter((o) => o.status === "refused").length;
-  const refusalRate = codOrders.length ? Math.round((refused / codOrders.length) * 100) : 0;
+  // Only COD parcels whose fate is known (delivered or returned) count towards the rate.
+  const codSettled = codOrders.filter(
+    (o) => o.status === "delivered" || o.status === "refused",
+  ).length;
+  const refusalRate = codSettled ? Math.round((refused / codSettled) * 100) : 0;
 
   const byPhone = new Map<string, number>();
   for (const o of month) byPhone.set(o.buyerPhone, (byPhone.get(o.buyerPhone) ?? 0) + 1);
@@ -63,13 +67,14 @@ export function Summary() {
       RTO_LOSS_PER_PARCEL,
   );
 
-  const tiles: { label: string; value: string; note?: string }[] = [
+  const tiles: { label: string; value: string; note?: string; note2?: string }[] = [
     { label: "Orders this month", value: String(month.length) },
     { label: "Prepaid share", value: `${prepaidShare}%` },
     {
       label: "COD refusal rate",
       value: `${refusalRate}%`,
       note: `Before Order Link: ${BASELINE_REFUSAL_RATE}%`,
+      note2: `Based on ${codSettled} shipped orders with a known outcome`,
     },
     { label: "Repeat buyers", value: String(repeatBuyers) },
   ];
@@ -87,6 +92,7 @@ export function Summary() {
               <p className="text-2xl font-bold text-navy">{t.value}</p>
               <p className="text-xs text-navy/60">{t.label}</p>
               {t.note && <p className="mt-0.5 text-[11px] text-navy/45">{t.note}</p>}
+              {t.note2 && <p className="text-[10px] leading-tight text-navy/40">{t.note2}</p>}
             </Card>
           ))}
         </div>

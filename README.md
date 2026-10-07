@@ -67,7 +67,7 @@ All rules live in [`src/lib/demo/risk.ts`](src/lib/demo/risk.ts). The score is c
 
 ### Prices
 
-The total is always computed from the lines (subtotal − discount). Neither the seller nor the buyer can type a total. A % discount is capped at 90% and a ₹ discount at subtotal − ₹1, with an inline warning. **Create link** stays disabled while the total is ₹0 or any line has no price.
+The total is always computed from the lines (subtotal − discount). Neither the seller nor the buyer can type a total. A discount is capped at 90% of the subtotal, whether entered as % or ₹, with an inline warning. **Create link** stays disabled while the total is ₹0 or any line has no price.
 
 - **Pay now:** order value, with free shipping by default (Settings → Prepaid offer).
 - **COD:** order value + ₹70 shipping + ₹49 COD fee (configurable).
@@ -102,7 +102,7 @@ What you see on screen:
 - **Names** are capitalised ("priya" → "Priya").
 - **"Same/old address"** in the chat is never copied into the address field. The app looks up that phone's last order and prefills its address and pincode, and the buyer page says "Using address from the last order".
 - **Custom lines** with no stated weight get "Check weight" in the "Check these" list.
-- **Pincodes** must be 6 digits starting with 1–8 (000000 and 999999 are invalid), with the inline error "Enter a 6-digit pincode". A seeded list marks some pincodes "Not serviceable", and city and state fill from a seeded lookup. A city is required before Continue.
+- **Pincodes** must be 6 digits starting with 1–8 (fewer digits show "Enter a 6-digit pincode"; 000000 or 999999 show "Invalid pincode"). City and state clear while the pincode is invalid. A seeded list marks some pincodes "Not serviceable", and city and state fill from a seeded lookup. If the lookup has no city, it comes from the cleaned address, and "Enter your city" shows if it is still empty. A city is required before Continue. If the address names a different city from the pincode, the warning "Address and pincode don't match – please check" appears, but it doesn't block Continue.
 
 ## What is simulated
 
@@ -111,6 +111,7 @@ What you see on screen:
 - **Pincodes:** serviceability and the city/state lookup use small seeded lists.
 - **Courier tracking:** placeholder links to each courier's site. There's no tracking API, so delivery is marked by the seller, by a doorstep UPI payment, or automatically after 10 days.
 - **Seed data:** 63 past orders over 4 weeks (about 35% prepaid, 4 returned COD parcels, repeat buyer Anjali with 3 delivered orders, and number `98111 22233` with one past return), so the demo order becomes the 64th this month.
+- **COD refusal rate:** returned ÷ COD parcels with a known outcome (delivered or returned), shown as "Based on X shipped orders with a known outcome". Seed order dates re-anchor to today when the demo is reopened, so "Orders this month" always includes every new order.
 - **"Saved this month":** (31% baseline refusal rate − current rate) × this month's COD orders × ₹180. The 31% "before" rate is an assumed baseline.
 - **Pro trial, store migration, loan eligibility:** these show a "not in prototype" toast.
 - **State:** held in memory in one store, shared by the seller and buyer views.

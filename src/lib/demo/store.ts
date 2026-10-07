@@ -84,6 +84,8 @@ export type State = {
   codBlocked: BlockedPhone[];
   linksCreated: number;
   orderSeq: number;
+  /** When the seed orders' dates were last anchored to "now". */
+  seededAt: number;
   aiAvailable: boolean;
 };
 
@@ -119,6 +121,7 @@ function initialState(aiAvailable = false): State {
     codBlocked: [],
     linksCreated: 0,
     orderSeq: 1064,
+    seededAt: Date.now(),
     aiAvailable,
   };
 }
@@ -142,7 +145,48 @@ type Persisted = Pick<
   | "codBlocked"
   | "linksCreated"
   | "orderSeq"
+  | "seededAt"
 >;
+
+const FIRST_DEMO_ORDER = 1064;
+const HOUR_MS = 60 * 60 * 1000;
+
+function isSeedOrder(o: Order): boolean {
+  return Number(o.id.replace(/\D/g, "")) < FIRST_DEMO_ORDER;
+}
+
+/**
+ * Seed orders are dated relative to when the demo was seeded. When it's reopened days later,
+ * shift them forward so the last 4 weeks still hold all 63 – otherwise old seed orders slide
+ * out of "this month" and new orders appear not to count.
+ */
+export function rebaseSeed(
+  orders: Order[],
+  seededAt: number | undefined,
+): { orders: Order[]; seededAt: number } {
+  const now = Date.now();
+  const seed = orders.filter(isSeedOrder);
+  // Older saves have no seededAt: the newest seed order was created at about seed time.
+  const anchor =
+    seededAt ?? (seed.length ? Math.max(...seed.map((o) => new Date(o.createdAt).getTime())) : now);
+  const delta = now - anchor;
+  if (delta < HOUR_MS) return { orders, seededAt: anchor };
+  const shift = (iso: string | undefined) =>
+    iso ? new Date(new Date(iso).getTime() + delta).toISOString() : iso;
+  return {
+    seededAt: now,
+    orders: orders.map((o) =>
+      isSeedOrder(o)
+        ? {
+            ...o,
+            createdAt: shift(o.createdAt)!,
+            shippedAt: shift(o.shippedAt),
+            timeline: o.timeline.map((t) => ({ ...t, at: shift(t.at)! })),
+          }
+        : o,
+    ),
+  };
+}
 
 function loadPersisted(): State {
   const fresh = initialState();
@@ -153,9 +197,12 @@ function loadPersisted(): State {
     if (!raw) return fresh;
     const saved = JSON.parse(raw) as Partial<Persisted>;
     if (!Array.isArray(saved.orders) || !saved.settings) return fresh;
+    const rebased = rebaseSeed(saved.orders, saved.seededAt);
     const restored: State = {
       ...fresh,
       ...saved,
+      orders: rebased.orders,
+      seededAt: rebased.seededAt,
       settings: { ...fresh.settings, ...saved.settings },
       codBlocked: saved.codBlocked ?? [],
     };
@@ -184,6 +231,7 @@ function persist(s: State) {
     codBlocked: s.codBlocked,
     linksCreated: s.linksCreated,
     orderSeq: s.orderSeq,
+    seededAt: s.seededAt,
   };
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));

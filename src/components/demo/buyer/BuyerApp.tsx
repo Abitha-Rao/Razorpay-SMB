@@ -14,7 +14,7 @@ import { AI_TIMEOUT_MS, cleanAddressFn, explainRiskFn } from "@/lib/demo/ai.func
 import { fallbackCleanAddress } from "@/lib/demo/fallback";
 import { linkUrl } from "@/lib/demo/messages";
 import { buyerPrices, dueOnDelivery, formatINR, lineTotal, subtotal } from "@/lib/demo/money";
-import { checkPincode } from "@/lib/demo/pincode";
+import { checkPincode, cityFromAddress, knownCityIn } from "@/lib/demo/pincode";
 import { buyerPrepaidReason, outcomePhrase } from "@/lib/demo/risk";
 import { SELLER, trustBadgeCount } from "@/lib/demo/seed";
 import { fullAddress, trackingUrl } from "@/lib/demo/shipping";
@@ -181,11 +181,18 @@ function AddressStep({ order }: { order: Order }) {
 
   function setPincode(pincode: string) {
     const check = checkPincode(pincode);
-    const lookup = check.status === "ok" || check.status === "unserviceable" ? check : null;
+    if (check.status === "invalid" || check.status === "empty") {
+      // An invalid pincode can't vouch for a city or state.
+      actions.updateBuyer({ pincode, city: "", state: "" });
+      return;
+    }
+    // Auto-fill city and state from the pincode. If the lookup has no city, use the one in the
+    // (cleaned) address; the buyer can still edit it.
+    const address = getState().buyer?.address ?? "";
     actions.updateBuyer({
       pincode,
-      // Auto-fill city and state from the pincode; the buyer can still edit the city.
-      ...(lookup ? { city: lookup.city || getState().buyer?.city || "", state: lookup.state } : {}),
+      city: check.city || cityFromAddress(address) || getState().buyer?.city || "",
+      state: check.state,
     });
   }
 
@@ -199,10 +206,13 @@ function AddressStep({ order }: { order: Order }) {
   }, []);
 
   const pin = checkPincode(buyer.pincode);
+  const pinCity = pin.status === "ok" || pin.status === "unserviceable" ? pin.city : "";
+  const addressCity = knownCityIn(buyer.address);
+  const cityMismatch = !!pinCity && !!addressCity && pinCity !== addressCity;
   const showPinError = pin.status === "invalid" && (pinTouched || buyer.pincode.length >= 6);
   const canContinue =
     buyer.name.trim() &&
-    buyer.phone.replace(/\D/g, "").length >= 10 &&
+    buyer.phone.replace(/[^0-9x]/gi, "").length >= 10 &&
     buyer.address.trim().length >= 10 &&
     pin.status === "ok" &&
     buyer.city.trim();
@@ -321,7 +331,14 @@ function AddressStep({ order }: { order: Order }) {
           />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="City">
+          <Field
+            label="City"
+            hint={
+              pin.status === "ok" && !buyer.city.trim() ? (
+                <p className="mt-1 text-xs font-medium text-risk">Enter your city</p>
+              ) : null
+            }
+          >
             <input
               className={inputCls}
               value={buyer.city}
@@ -338,6 +355,11 @@ function AddressStep({ order }: { order: Order }) {
             />
           </Field>
         </div>
+        {cityMismatch && (
+          <p className="rounded-lg bg-warning/12 px-2.5 py-1.5 text-xs font-medium text-[#b54708]">
+            Address and pincode don't match – please check
+          </p>
+        )}
       </Card>
       <p className="px-1 text-[11px] leading-relaxed text-navy/50">
         🔒 Your address is shared with {SELLER.name} and the courier only to deliver this order.
@@ -453,6 +475,13 @@ function PaymentStep({ order }: { order: Order }) {
             </button>
           )}
         </div>
+      )}
+      {risk.action === "partial_upfront" && (
+        <p className="px-1 text-xs text-navy/60">
+          {risk.reasons.some((r) => r.code === "new_phone")
+            ? "First order from this number – pay a small part now to confirm COD."
+            : "Pay a small part now to confirm COD."}
+        </p>
       )}
       <BackLink to="address" />
     </>

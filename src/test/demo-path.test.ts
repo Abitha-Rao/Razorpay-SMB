@@ -9,10 +9,10 @@ import {
   wantsSavedAddress,
 } from "@/lib/demo/fallback";
 import { buyerPrices, capDiscount, formatINR, orderValue } from "@/lib/demo/money";
-import { checkPincode } from "@/lib/demo/pincode";
+import { checkPincode, cityFromAddress, knownCityIn } from "@/lib/demo/pincode";
 import { buyerPrepaidReason, scoreRisk, sellerVerdict } from "@/lib/demo/risk";
 import { DEFAULT_SETTINGS, SEED_CATALOG, buildSeedOrders, trustBadgeCount } from "@/lib/demo/seed";
-import { lastAddressFor } from "@/lib/demo/store";
+import { lastAddressFor, rebaseSeed } from "@/lib/demo/store";
 import type { OrderLine } from "@/lib/demo/types";
 
 const seed = buildSeedOrders();
@@ -202,10 +202,11 @@ describe("test 3: discount caps", () => {
     expect(c.discount).toEqual({ type: "percent", value: 90 });
     expect(c.warning).toMatch(/90%/);
   });
-  it("caps a flat discount at subtotal − ₹1", () => {
+  it("caps a ₹ discount at 90% of the subtotal too", () => {
     const c = capDiscount(lines, { type: "flat", value: 5000 });
-    expect(c.discount).toEqual({ type: "flat", value: 2449 });
-    expect(orderValue(lines, c.discount)).toBe(1);
+    expect(c.discount).toEqual({ type: "flat", value: 2205 });
+    expect(c.warning).toMatch(/90% of subtotal/);
+    expect(orderValue(lines, c.discount)).toBe(245);
   });
 });
 
@@ -255,9 +256,33 @@ describe("buyer page checks", () => {
     expect(checkPincode("1100").status).toBe("invalid");
     expect(checkPincode("110085")).toEqual({ status: "ok", city: "Delhi", state: "Delhi" });
     expect(checkPincode("744101").status).toBe("unserviceable");
+    expect(checkPincode("999999")).toEqual({ status: "invalid", error: "Invalid pincode" });
+    expect(checkPincode("1100")).toEqual({ status: "invalid", error: "Enter a 6-digit pincode" });
+  });
+
+  it("finds the city in an address and spots a mismatch", () => {
+    expect(
+      knownCityIn("Flat 12, B Block, Near Hanuman Mandir, Sector 4, Rohini, Delhi 110085"),
+    ).toBe("Delhi");
+    expect(knownCityIn("12, 4th Cross, Indiranagar, Bangalore")).toBe("Bengaluru");
+    expect(cityFromAddress("Flat 3, Main Road, Hosur")).toBe("Hosur");
+    expect(cityFromAddress("near the temple")).toBe("");
   });
 
   it("trust badge starts at 128 on the seed", () => {
     expect(trustBadgeCount(seed)).toBe(128);
+  });
+});
+
+describe("orders this month", () => {
+  it("re-anchors seed dates so a demo saved days ago still has 63 seed orders this month", () => {
+    const fourDays = 4 * 24 * 60 * 60 * 1000;
+    const old = buildSeedOrders(Date.now() - fourDays);
+    const inMonth = (orders: typeof old) =>
+      orders.filter((o) => Date.now() - new Date(o.createdAt).getTime() < 30 * 24 * 60 * 60 * 1000)
+        .length;
+    expect(inMonth(old)).toBeLessThan(63);
+    const { orders } = rebaseSeed(old, undefined);
+    expect(inMonth(orders)).toBe(63);
   });
 });

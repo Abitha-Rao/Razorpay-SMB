@@ -15,7 +15,7 @@ export function subtotal(lines: OrderLine[]): number {
 export const MAX_PERCENT_DISCOUNT = 90;
 
 /**
- * Keep a discount within limits: at most 90%, and a flat discount at most subtotal − ₹1,
+ * Keep a discount within limits: at most 90% of the subtotal, whether entered as % or ₹,
  * so an order can never be free. Returns the capped discount and a warning if it changed.
  */
 export function capDiscount(
@@ -28,11 +28,11 @@ export function capDiscount(
       discount: { type: "percent", value: MAX_PERCENT_DISCOUNT },
       warning: `Discount capped at ${MAX_PERCENT_DISCOUNT}%`,
     };
-  const max = Math.max(0, subtotal(lines) - 1);
+  const max = Math.floor((subtotal(lines) * MAX_PERCENT_DISCOUNT) / 100);
   if (discount.type === "flat" && discount.value > max)
     return {
       discount: { type: "flat", value: max },
-      warning: `Discount capped at ${formatINR(max)} (subtotal − ₹1)`,
+      warning: `Discount capped at ${formatINR(max)} (${MAX_PERCENT_DISCOUNT}% of subtotal)`,
     };
   return { discount, warning: null };
 }
