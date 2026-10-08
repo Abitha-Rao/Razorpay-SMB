@@ -7,17 +7,17 @@ import { Toaster } from "@/components/ui/sonner";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Chat Checkout (concept)" },
+      { title: "Chat Checkout" },
       {
         name: "description",
         content:
-          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
+          "Turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
-      { property: "og:title", content: "Chat Checkout (concept)" },
+      { property: "og:title", content: "Chat Checkout" },
       {
         property: "og:description",
         content:
-          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
+          "Turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

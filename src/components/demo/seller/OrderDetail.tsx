@@ -9,7 +9,7 @@ import {
   StatusChip,
   Timeline,
 } from "@/components/demo/ui";
-import { COD_NOTE, codSummary, isListed } from "@/lib/demo/cod";
+import { codSummary, isListed } from "@/lib/demo/cod";
 import { fullAddress } from "@/lib/demo/address";
 import {
   discountAmount,
@@ -58,6 +58,7 @@ export function OrderDetail({ id }: { id: string }) {
     awaiting || !order.codCheck ? codCheckFor({ orders, trusted, blocked }, order) : order.codCheck;
   const showCheck = awaiting || !!order.codCheck;
   const isTrusted = isListed(order.buyerPhone, trusted);
+  const isBlocked = isListed(order.buyerPhone, blocked);
   const canOverride = awaiting && !order.override && check.action !== "allowed";
 
   return (
@@ -83,7 +84,6 @@ export function OrderDetail({ id }: { id: string }) {
           <Card className={cn(check.action === "allowed" ? "bg-success/8" : "bg-warning/10")}>
             <SectionTitle>{awaiting ? "If the buyer picks COD" : "COD check"}</SectionTitle>
             <p className="text-sm leading-relaxed text-navy">{codSummary(check, formatINR)}</p>
-            <p className="mt-1.5 text-[10px] text-navy/40">{COD_NOTE}</p>
             {canOverride && (
               <Btn
                 variant="secondary"
@@ -100,28 +100,57 @@ export function OrderDetail({ id }: { id: string }) {
         )}
 
         {order.buyerPhone && (
-          <div className="flex items-center justify-between rounded-2xl bg-surface px-3 py-2.5">
+          <div className="space-y-2 rounded-2xl bg-surface px-3 py-2.5">
             <p className="text-sm text-navy">
-              {isTrusted ? "★ Trusted buyer – COD always allowed" : "Not on your Trusted list"}
+              {isTrusted
+                ? "★ Trusted buyer – COD always allowed"
+                : isBlocked
+                  ? "Blocked buyer – prepaid only"
+                  : "Not on your Trusted or Blocked list"}
             </p>
-            {isTrusted ? (
-              <button
-                className="text-xs font-semibold text-danger"
-                onClick={() => actions.untrustBuyer(order.buyerPhone)}
-              >
-                Remove
-              </button>
-            ) : (
-              <button
-                className="text-xs font-semibold text-rzp"
-                onClick={() => {
-                  actions.trustBuyer(order.buyerPhone, order.buyerName);
-                  toast(`${order.buyerName} added to Trusted buyers`);
-                }}
-              >
-                Add to trusted
-              </button>
-            )}
+            <div className="flex gap-2">
+              {isTrusted ? (
+                <Btn
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => actions.untrustBuyer(order.buyerPhone)}
+                >
+                  Remove from trusted
+                </Btn>
+              ) : (
+                <Btn
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    actions.trustBuyer(order.buyerPhone, order.buyerName);
+                    toast(`${order.buyerName} added to Trusted buyers`);
+                  }}
+                >
+                  Add to trusted
+                </Btn>
+              )}
+              {isBlocked ? (
+                <Btn
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => actions.unblockBuyer(order.buyerPhone)}
+                >
+                  Unblock
+                </Btn>
+              ) : (
+                <Btn
+                  size="sm"
+                  variant="secondary"
+                  className="border-danger/30 text-danger hover:bg-danger/5"
+                  onClick={() => {
+                    actions.blockBuyer(order.buyerPhone, order.buyerName);
+                    toast(`${order.buyerName} blocked`);
+                  }}
+                >
+                  Block buyer
+                </Btn>
+              )}
+            </div>
           </div>
         )}
 

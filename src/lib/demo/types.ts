@@ -43,6 +43,23 @@ export type CodCheck = {
 
 export type TimelineEvent = { label: string; at: string };
 
+/** How a buyer paid (or chose to pay). */
+export type PayMethod = "upi" | "card" | "netbanking" | "wallet" | "cod";
+
+export type AddressLabel = "Home" | "Work" | "Other";
+
+/** An address a buyer saved against their mobile number. */
+export type SavedAddress = {
+  id: string;
+  phone: string;
+  label: AddressLabel;
+  name: string;
+  address: string;
+  pincode: string;
+  city: string;
+  state: string;
+};
+
 export type Order = {
   id: string;
   linkCode: string;
@@ -71,6 +88,9 @@ export type Order = {
   override?: boolean | undefined;
   /** The COD check as it stood when the buyer picked COD. */
   codCheck?: CodCheck | undefined;
+  /** How the buyer paid, and which UPI app, so the next checkout can preselect it. */
+  method?: PayMethod | undefined;
+  payApp?: string | undefined;
   timeline: TimelineEvent[];
   uncertain?: string[] | undefined;
 };

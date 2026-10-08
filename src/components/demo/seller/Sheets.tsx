@@ -97,7 +97,7 @@ function MessageSheet({ kind, order }: { kind: MessageKind; order: Order }) {
           className="w-full bg-[#25D366] hover:bg-[#1ebe5a]"
           onClick={() => {
             actions.closeSheet();
-            toast.success(`Opened WhatsApp to ${who} (simulated)`);
+            toast.success(`Opened WhatsApp to ${who}`);
           }}
         >
           Share on WhatsApp

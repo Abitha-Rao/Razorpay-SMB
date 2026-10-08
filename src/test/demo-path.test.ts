@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { checkoutSummary, lastUsedPayment } from "@/lib/demo/checkout";
 import { codDecision, codSummary, prepaidOnlyReason } from "@/lib/demo/cod";
 import {
   SAMPLES,
@@ -17,6 +18,7 @@ import {
   SEED_CATALOG,
   VIKRAM,
   buildSeedOrders,
+  seedAddressBook,
   seedLists,
 } from "@/lib/demo/seed";
 import { actions, codCheckFor, getState, lastAddressFor, rebaseSeed } from "@/lib/demo/store";
@@ -291,5 +293,185 @@ describe("amounts and address checks", () => {
     expect(knownCityIn("Flat 12, Rohini, Delhi 110085")).toBe("Delhi");
     expect(knownCityIn("12, 4th Cross, Indiranagar, Bangalore")).toBe("Bengaluru");
     expect(cityFromAddress("near the temple")).toBe("");
+  });
+});
+
+describe("checkout price summary", () => {
+  const order = {
+    lines: [
+      { id: "1", type: "catalog", name: "Saree", qty: 1, unitPrice: 2450, weightKg: 0.6 },
+    ] as OrderLine[],
+    discount: null,
+  };
+  const allowed = { action: "allowed", reason: "default", prepayNudge: true } as const;
+  const part = {
+    action: "part_payment",
+    reason: "returned",
+    prepayNudge: false,
+    upfrontAmount: 490,
+  } as const;
+
+  it("online: free shipping, no COD Fee", () => {
+    const s = checkoutSummary(order, DEFAULT_SETTINGS, "upi", allowed);
+    expect(s).toMatchObject({ shipping: 0, codFee: 0, total: 2450, payNow: 2450, onDelivery: 0 });
+  });
+
+  it("COD adds shipping and the COD Fee, all due on delivery", () => {
+    const s = checkoutSummary(order, DEFAULT_SETTINGS, "cod", allowed);
+    expect(s).toMatchObject({ shipping: 70, codFee: 49, total: 2569, payNow: 0, onDelivery: 2569 });
+  });
+
+  it("part-payment splits the COD total into an advance and the rest", () => {
+    const s = checkoutSummary(order, DEFAULT_SETTINGS, "cod", part);
+    expect(s).toMatchObject({ total: 2569, payNow: 490, onDelivery: 2079 });
+  });
+
+  it("shows the seller's discount", () => {
+    const s = checkoutSummary(
+      { ...order, discount: { type: "percent", value: 10 } },
+      DEFAULT_SETTINGS,
+      "upi",
+      allowed,
+    );
+    expect(s).toMatchObject({ subtotal: 2450, discount: 245, total: 2205 });
+  });
+});
+
+describe("returning buyers", () => {
+  it("preselects the last-used payment method", () => {
+    expect(lastUsedPayment(ANJALI.phone, seed)).toEqual({ method: "cod", app: undefined });
+    expect(lastUsedPayment("98100 77889", seed)).toEqual({ method: "upi", app: "PhonePe" });
+    expect(lastUsedPayment("99001 23456", seed)?.method).toBe("card");
+    expect(lastUsedPayment("9811204521", seed)).toBeNull();
+  });
+
+  it("has a saved Home address for every seed buyer", () => {
+    const book = seedAddressBook();
+    expect(book).toHaveLength(10);
+    expect(book.every((a) => a.label === "Home" && a.pincode && a.city && a.state)).toBe(true);
+  });
+});
+
+describe("buyer checkout steps", () => {
+  beforeEach(() => actions.resetDemo());
+
+  function link(phone: string) {
+    actions.openNewOrder();
+    actions.updateDraft({
+      status: "drafted",
+      lines: linesFrom(SAMPLES[0]!.chat),
+      buyerName: "Priya",
+      buyerPhone: phone,
+      addressText: "flat 12 b block near hanuman mandir sector 4 rohini delhi 110085",
+      pincode: "110085",
+    });
+    return actions.createLink();
+  }
+
+  it("starts at the mobile number, prefilled only from a full number", () => {
+    link("9811204521");
+    expect(getState().buyer).toMatchObject({ step: "mobile", phone: "9811204521" });
+    link("98xxxxxx21");
+    expect(getState().buyer?.phone).toBe("");
+  });
+
+  it("a returning number loads its saved address after the OTP", () => {
+    link("9811204521");
+    actions.updateBuyer({ phone: "9829011223", otp: "123456" });
+    actions.verifyOtp();
+    const b = getState().buyer!;
+    expect(b).toMatchObject({ step: "main", returning: true });
+    expect(b.address).toMatchObject({
+      label: "Home",
+      name: "Anjali Verma",
+      pincode: "302018",
+      city: "Jaipur",
+    });
+    expect(getState().orders[0]!.buyerPhone).toBe("9829011223");
+  });
+
+  it("a new number is asked for an address, and can save it as Home, Work or Other", () => {
+    const order = link("9811204521");
+    actions.updateBuyer({ phone: "9811204521", otp: "654321" });
+    actions.verifyOtp();
+    expect(getState().buyer).toMatchObject({ step: "address", returning: false });
+
+    const before = getState().addressBook.length;
+    actions.submitAddress({
+      name: "Priya",
+      address: "flat 12 b block near hanuman mandir sector 4 rohini delhi",
+      pincode: "110085",
+      city: "Delhi",
+      state: "Delhi",
+      label: "Work",
+    });
+    expect(getState().addressBook).toHaveLength(before + 1);
+    expect(getState().addressBook.at(-1)).toMatchObject({ label: "Work", phone: "9811204521" });
+    expect(getState().buyer?.step).toBe("main");
+    expect(getState().orders.find((o) => o.id === order.id)).toMatchObject({
+      city: "Delhi",
+      state: "Delhi",
+    });
+
+    // The same number is a returning buyer next time.
+    link("9811204521");
+    actions.updateBuyer({ phone: "9811204521", otp: "111111" });
+    actions.verifyOtp();
+    expect(getState().buyer).toMatchObject({ step: "main", returning: true });
+  });
+
+  it("an address with no label is used for the order but not saved", () => {
+    link("9811204521");
+    actions.updateBuyer({ phone: "9811204521", otp: "654321" });
+    actions.verifyOtp();
+    const before = getState().addressBook.length;
+    actions.submitAddress({
+      name: "Priya",
+      address: "flat 12 b block near hanuman mandir sector 4 rohini delhi",
+      pincode: "110085",
+      city: "Delhi",
+      state: "Delhi",
+    });
+    expect(getState().addressBook).toHaveLength(before);
+  });
+
+  it("paying records the method and app for next time", () => {
+    const order = link("9811204521");
+    actions.completePayment(order.id, "prepaid", 2450, "upi", "PhonePe");
+    expect(lastUsedPayment("9811204521", getState().orders, "other")).toEqual({
+      method: "upi",
+      app: "PhonePe",
+    });
+  });
+});
+
+describe("blocking and adding buyers", () => {
+  beforeEach(() => actions.resetDemo());
+
+  it("a buyer is on one list at a time", () => {
+    actions.blockBuyer(ANJALI.phone, ANJALI.name);
+    expect(getState().blocked.map((b) => b.phone)).toContain(ANJALI.phone);
+    expect(getState().trusted.map((b) => b.phone)).not.toContain(ANJALI.phone);
+    actions.trustBuyer(ANJALI.phone, ANJALI.name);
+    expect(getState().trusted.map((b) => b.phone)).toContain(ANJALI.phone);
+    expect(getState().blocked.map((b) => b.phone)).not.toContain(ANJALI.phone);
+  });
+
+  it("a blocked buyer sees COD unavailable", () => {
+    actions.blockBuyer("94000 11111", "Test Buyer");
+    expect(decide("94000 11111", { blocked: getState().blocked })).toMatchObject({
+      action: "prepaid_only",
+      reason: "blocked",
+    });
+  });
+
+  it("Add buyer puts someone who hasn't ordered on a list", () => {
+    actions.addBuyerToList("trusted", "9876543210", "Meena");
+    actions.addBuyerToList("blocked", "9123456780", "Ravi");
+    expect(getState().trusted.map((b) => b.name)).toContain("Meena");
+    expect(getState().blocked.map((b) => b.name)).toContain("Ravi");
+    actions.addBuyerToList("blocked", "9876543210", "Meena");
+    expect(getState().trusted.map((b) => b.name)).not.toContain("Meena");
+    expect(getState().blocked.map((b) => b.name)).toContain("Meena");
   });
 });

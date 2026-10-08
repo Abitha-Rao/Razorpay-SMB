@@ -78,18 +78,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Chat Checkout (concept)" },
+      { title: "Chat Checkout" },
       {
         name: "description",
         content:
-          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
+          "Turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Chat Checkout (concept)" },
+      { property: "og:title", content: "Chat Checkout" },
       {
         property: "og:description",
         content:
-          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
+          "Turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

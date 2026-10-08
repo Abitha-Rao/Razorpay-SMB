@@ -5,7 +5,9 @@ import type {
   Order,
   OrderLine,
   OrderStatus,
+  PayMethod,
   PaymentMode,
+  SavedAddress,
   Seller,
   Settings,
 } from "./types";
@@ -34,7 +36,14 @@ export const SEED_CATALOG: CatalogItem[] = [
 /** Pincodes the courier can't reach (for the pincode check). */
 export const UNSERVICEABLE_PINCODES = ["744101", "194101", "737101"];
 
-type Buyer = { name: string; phone: string; address: string; pincode: string };
+type Buyer = {
+  name: string;
+  phone: string;
+  address: string;
+  pincode: string;
+  city: string;
+  state: string;
+};
 
 /** Trusted: three delivered orders, so COD is always allowed. */
 export const ANJALI: Buyer = {
@@ -42,6 +51,8 @@ export const ANJALI: Buyer = {
   phone: "98290 11223",
   address: "C-14, Shanti Nagar, Durgapura, Jaipur",
   pincode: "302018",
+  city: "Jaipur",
+  state: "Rajasthan",
 };
 
 /** Has one returned parcel, so COD needs a part-payment. */
@@ -50,6 +61,8 @@ export const ROHIT: Buyer = {
   phone: "98111 22233",
   address: "House 7, Gali 3, Aliganj, Lucknow",
   pincode: "226024",
+  city: "Lucknow",
+  state: "Uttar Pradesh",
 };
 
 /** On the seller's Blocked list, so prepaid only. */
@@ -58,6 +71,8 @@ export const VIKRAM: Buyer = {
   phone: "94140 55667",
   address: "Ward 9, Near Bus Stand, Sikar",
   pincode: "332001",
+  city: "Sikar",
+  state: "Rajasthan",
 };
 
 const KAVYA: Buyer = {
@@ -65,42 +80,56 @@ const KAVYA: Buyer = {
   phone: "99001 23456",
   address: "12, 4th Cross, Indiranagar, Bengaluru",
   pincode: "560038",
+  city: "Bengaluru",
+  state: "Karnataka",
 };
 const NEHA: Buyer = {
   name: "Neha Gupta",
   phone: "98100 77889",
   address: "B-201, Mayur Vihar Phase 1, Delhi",
   pincode: "110091",
+  city: "Delhi",
+  state: "Delhi",
 };
 const SHALINI: Buyer = {
   name: "Shalini Rao",
   phone: "99860 11447",
   address: "88, Jayanagar 7th Block, Bengaluru",
   pincode: "560070",
+  city: "Bengaluru",
+  state: "Karnataka",
 };
 const SNEHA: Buyer = {
   name: "Sneha Patil",
   phone: "98220 45671",
   address: "Flat 302, Sai Residency, Baner Road, Pune",
   pincode: "411045",
+  city: "Pune",
+  state: "Maharashtra",
 };
 const DIVYA: Buyer = {
   name: "Divya Menon",
   phone: "98470 66554",
   address: "TC 15/220, Vazhuthacaud, Thiruvananthapuram",
   pincode: "695014",
+  city: "Thiruvananthapuram",
+  state: "Kerala",
 };
 const KOMAL: Buyer = {
   name: "Komal Singh",
   phone: "99280 16180",
   address: "Plot 33, Vaishali Nagar, Jaipur",
   pincode: "302021",
+  city: "Jaipur",
+  state: "Rajasthan",
 };
 const AYESHA: Buyer = {
   name: "Ayesha Khan",
   phone: "98330 90012",
   address: "Room 5, Noor Manzil, Mohammed Ali Road, Mumbai",
   pincode: "400003",
+  city: "Mumbai",
+  state: "Maharashtra",
 };
 
 const HOUR = 60 * 60 * 1000;
@@ -112,6 +141,9 @@ type Row = {
   mode: PaymentMode;
   status: OrderStatus;
   daysAgo: number;
+  /** How they paid, so a returning buyer's checkout can preselect it. */
+  method?: PayMethod;
+  app?: string;
 };
 
 /** About 12 orders for one seller, oldest first. */
@@ -122,6 +154,8 @@ const ROWS: Row[] = [
     mode: "prepaid",
     status: "delivered",
     daysAgo: 25,
+    method: "upi",
+    app: "Google Pay",
   },
   {
     buyer: KAVYA,
@@ -129,6 +163,7 @@ const ROWS: Row[] = [
     mode: "prepaid",
     status: "delivered",
     daysAgo: 22,
+    method: "card",
   },
   {
     buyer: VIKRAM,
@@ -136,6 +171,7 @@ const ROWS: Row[] = [
     mode: "cod",
     status: "delivered",
     daysAgo: 20,
+    method: "cod",
   },
   {
     buyer: ROHIT,
@@ -143,6 +179,7 @@ const ROWS: Row[] = [
     mode: "cod",
     status: "returned",
     daysAgo: 18,
+    method: "cod",
   },
   {
     buyer: ANJALI,
@@ -150,6 +187,8 @@ const ROWS: Row[] = [
     mode: "prepaid",
     status: "delivered",
     daysAgo: 15,
+    method: "upi",
+    app: "Google Pay",
   },
   {
     buyer: NEHA,
@@ -157,6 +196,8 @@ const ROWS: Row[] = [
     mode: "partial",
     status: "delivered",
     daysAgo: 12,
+    method: "upi",
+    app: "PhonePe",
   },
   {
     buyer: SHALINI,
@@ -164,15 +205,31 @@ const ROWS: Row[] = [
     mode: "prepaid",
     status: "delivered",
     daysAgo: 9,
+    method: "wallet",
   },
-  { buyer: ANJALI, items: [["jhumka-silver", 1]], mode: "cod", status: "delivered", daysAgo: 7 },
-  { buyer: SNEHA, items: [["stole-maroon", 1]], mode: "prepaid", status: "paid", daysAgo: 2 },
+  {
+    buyer: ANJALI,
+    items: [["jhumka-silver", 1]],
+    mode: "cod",
+    status: "delivered",
+    daysAgo: 7,
+    method: "cod",
+  },
+  {
+    buyer: SNEHA,
+    items: [["stole-maroon", 1]],
+    mode: "prepaid",
+    status: "paid",
+    daysAgo: 2,
+    method: "netbanking",
+  },
   {
     buyer: DIVYA,
     items: [["kurti-blue", 1, "S"]],
     mode: "cod",
     status: "cod_confirmed",
     daysAgo: 2,
+    method: "cod",
   },
   {
     buyer: KOMAL,
@@ -180,6 +237,8 @@ const ROWS: Row[] = [
     mode: "partial",
     status: "partial_paid",
     daysAgo: 1,
+    method: "upi",
+    app: "Paytm",
   },
   {
     buyer: AYESHA,
@@ -264,6 +323,10 @@ export function buildSeedOrders(now = Date.now()): Order[] {
       buyerPhone: row.buyer.phone,
       address: row.buyer.address,
       pincode: row.buyer.pincode,
+      city: row.buyer.city,
+      state: row.buyer.state,
+      method: row.method,
+      payApp: row.app,
       lines,
       discount: null,
       status: row.status,
@@ -285,4 +348,25 @@ export function seedLists(now = Date.now()): { trusted: BuyerRef[]; blocked: Buy
     trusted: [{ phone: ANJALI.phone, name: ANJALI.name, at }],
     blocked: [{ phone: VIKRAM.phone, name: VIKRAM.name, at }],
   };
+}
+
+/** Each seed buyer's address, saved as "Home" against their mobile number. */
+export function seedAddressBook(): SavedAddress[] {
+  const seen = new Set<string>();
+  const book: SavedAddress[] = [];
+  for (const { buyer } of ROWS) {
+    if (seen.has(buyer.phone)) continue;
+    seen.add(buyer.phone);
+    book.push({
+      id: `addr-${book.length + 1}`,
+      phone: buyer.phone,
+      label: "Home",
+      name: buyer.name,
+      address: buyer.address,
+      pincode: buyer.pincode,
+      city: buyer.city,
+      state: buyer.state,
+    });
+  }
+  return book;
 }

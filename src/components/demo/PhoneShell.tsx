@@ -21,7 +21,7 @@ export function PhoneShell() {
   return (
     <div className="min-h-dvh bg-[#e9edf3] pb-14 sm:py-6">
       <div className="mx-auto flex w-full max-w-[390px] flex-col sm:gap-3">
-        {/* Demo controls – outside the phone on desktop, a slim bar on mobile */}
+        {/* Controls – outside the phone on desktop, a slim bar on mobile */}
         <div className="flex items-center gap-2 bg-white px-3 py-2 sm:rounded-2xl sm:px-2 sm:shadow-sm">
           <div className="flex flex-1 rounded-xl bg-surface p-1">
             {(["seller", "buyer"] as const).map((v) => (
@@ -43,21 +43,18 @@ export function PhoneShell() {
           <button
             onClick={() => {
               actions.resetDemo();
-              toast("Demo reset");
+              toast("Reset");
             }}
             className="rounded-lg px-2.5 py-2 text-xs font-medium text-navy/60 hover:bg-surface"
           >
-            Reset demo
+            Reset
           </button>
         </div>
 
         <div className="relative flex h-[calc(100dvh-116px)] flex-col overflow-hidden bg-white sm:h-[min(780px,calc(100dvh-110px))] sm:min-h-[560px] sm:rounded-[40px] sm:border-[10px] sm:border-[#111827] sm:shadow-2xl">
-          <div className="shrink-0 bg-warning/15 px-3 py-1.5 text-center text-[11px] font-medium text-[#93370d]">
-            Prototype – simulated Razorpay checkout, no real payments
-          </div>
           {view === "seller" && (
             <div className="shrink-0 border-b border-navy/5 px-4 py-1.5 text-[10px] font-semibold tracking-wide text-navy/60">
-              Chat Checkout <span className="font-normal text-navy/40">by Razorpay (concept)</span>
+              Chat Checkout <span className="font-normal text-navy/40">by Razorpay</span>
             </div>
           )}
           <div className="relative min-h-0 flex-1">
@@ -70,10 +67,6 @@ export function PhoneShell() {
             )}
           </div>
         </div>
-        <p className="hidden text-center text-[11px] text-navy/40 sm:block">
-          Concept prototype for a product challenge. Not affiliated with or endorsed by Razorpay.
-          Prototype rules. Production would reuse Razorpay Magic Checkout's COD rules.
-        </p>
       </div>
     </div>
   );

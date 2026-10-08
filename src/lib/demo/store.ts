@@ -1,6 +1,6 @@
 /**
  * One in-memory store for the whole prototype, so the seller and buyer views always
- * show the same order instantly. "Reset demo" rebuilds it from the seed.
+ * show the same order instantly. "Reset" rebuilds it from the seed.
  */
 import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
@@ -14,9 +14,11 @@ import {
   FIRST_DEMO_ORDER,
   SEED_CATALOG,
   buildSeedOrders,
+  seedAddressBook,
   seedLists,
 } from "./seed";
 import type {
+  AddressLabel,
   AiSource,
   BuyerRef,
   CatalogItem,
@@ -24,6 +26,8 @@ import type {
   Discount,
   Order,
   OrderLine,
+  PayMethod,
+  SavedAddress,
   Settings,
 } from "./types";
 
@@ -50,25 +54,31 @@ export type DraftState = {
   uncertain: string[];
 };
 
-export type BuyerStep =
-  "order" | "address" | "payment" | "checking" | "cod_outcome" | "checkout" | "done";
+/** Mobile number → OTP → (new number: address) → checkout → paying → done. */
+export type BuyerStep = "mobile" | "otp" | "address" | "main" | "paying" | "done";
+
+/** The delivery address chosen for this order. */
+export type SelectedAddress = {
+  id?: string | undefined;
+  label?: AddressLabel | undefined;
+  name: string;
+  address: string;
+  pincode: string;
+  city: string;
+  state: string;
+};
 
 export type BuyerFlow = {
   orderId: string;
   step: BuyerStep;
-  name: string;
+  /** The buyer's mobile number, digits only. */
   phone: string;
-  address: string;
-  /** The buyer typed or edited the address – don't replace it with a saved one. */
-  addressEdited?: boolean | undefined;
-  /** Set while the address is still the one prefilled from this phone's last order. */
-  savedAddress?: string | undefined;
-  pincode: string;
-  city: string;
-  /** The buyer typed the city themselves – never overwrite it from a lookup. */
-  cityEdited?: boolean | undefined;
-  state: string;
-  checkout?: { amount: number; purpose: "prepaid" | "partial" } | undefined;
+  otp: string;
+  /** This number has a saved address. */
+  returning: boolean;
+  address?: SelectedAddress | undefined;
+  paying?:
+    { purpose: "prepaid" | "partial"; amount: number; method: PayMethod; app: string } | undefined;
   paymentId?: string | undefined;
 };
 
@@ -91,6 +101,8 @@ export type State = {
   trusted: BuyerRef[];
   /** Buyers who only get prepaid. */
   blocked: BuyerRef[];
+  /** Addresses buyers saved against their mobile number. */
+  addressBook: SavedAddress[];
   linksCreated: number;
   orderSeq: number;
   /** When the seed orders' dates were last anchored to "now". */
@@ -131,6 +143,7 @@ function initialState(aiAvailable = false): State {
     buyer: null,
     trusted: lists.trusted,
     blocked: lists.blocked,
+    addressBook: seedAddressBook(),
     linksCreated: 0,
     orderSeq: FIRST_DEMO_ORDER,
     seededAt: Date.now(),
@@ -139,10 +152,10 @@ function initialState(aiAvailable = false): State {
 }
 
 // ---------- persistence ----------
-// The demo survives a page refresh; "Reset demo" clears it. Storage can be unavailable
+// The state survives a page refresh; "Reset" clears it. Storage can be unavailable
 // (private mode, blocked site data), so every access is guarded.
 
-const STORAGE_KEY = "chat-checkout-demo-v1";
+const STORAGE_KEY = "chat-checkout-v2";
 
 type Persisted = Pick<
   State,
@@ -156,6 +169,7 @@ type Persisted = Pick<
   | "buyer"
   | "trusted"
   | "blocked"
+  | "addressBook"
   | "linksCreated"
   | "orderSeq"
   | "seededAt"
@@ -168,7 +182,7 @@ function isSeedOrder(o: Order): boolean {
 }
 
 /**
- * Seed orders are dated relative to when the demo was seeded. When it's reopened days later,
+ * Seed orders are dated relative to when the data was seeded. When it's reopened days later,
  * shift them forward so they still look recent.
  */
 export function rebaseSeed(
@@ -200,9 +214,9 @@ function loadPersisted(): State {
   const fresh = initialState();
   if (typeof window === "undefined") return fresh;
   try {
-    // Older versions of the prototype used other keys and shapes.
-    window.localStorage.removeItem("order-link-demo-v1");
-    window.localStorage.removeItem("order-link-demo-v2");
+    // Older versions used other keys and shapes.
+    for (const old of ["order-link-demo-v1", "order-link-demo-v2", "chat-checkout-demo-v1"])
+      window.localStorage.removeItem(old);
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return fresh;
     const saved = JSON.parse(raw) as Partial<Persisted>;
@@ -216,12 +230,13 @@ function loadPersisted(): State {
       settings: { ...fresh.settings, ...saved.settings },
       trusted: saved.trusted ?? fresh.trusted,
       blocked: saved.blocked ?? fresh.blocked,
+      addressBook: saved.addressBook ?? fresh.addressBook,
     };
     // Steps driven by timers can't resume after a reload; step back to where they started.
     if (restored.draft.status === "loading")
       restored.draft = { ...restored.draft, status: "editing" };
-    if (restored.buyer?.step === "checking")
-      restored.buyer = { ...restored.buyer, step: "payment" };
+    if (restored.buyer?.step === "paying")
+      restored.buyer = { ...restored.buyer, step: "main", paying: undefined };
     return restored;
   } catch {
     return fresh;
@@ -241,6 +256,7 @@ function persist(s: State) {
     buyer: s.buyer,
     trusted: s.trusted,
     blocked: s.blocked,
+    addressBook: s.addressBook,
     linksCreated: s.linksCreated,
     orderSeq: s.orderSeq,
     seededAt: s.seededAt,
@@ -248,7 +264,7 @@ function persist(s: State) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
-    // Storage full or blocked – the demo still works in memory.
+    // Storage full or blocked – everything still works in memory.
   }
 }
 
@@ -319,6 +335,23 @@ export function codCheckFor(
   });
 }
 
+/** Saved addresses for a mobile number, newest saved last. */
+export function savedAddressesFor(phone: string, book: SavedAddress[]): SavedAddress[] {
+  return book.filter((a) => samePhone(a.phone, phone));
+}
+
+function toSelected(a: SavedAddress): SelectedAddress {
+  return {
+    id: a.id,
+    label: a.label,
+    name: a.name,
+    address: a.address,
+    pincode: a.pincode,
+    city: a.city,
+    state: a.state,
+  };
+}
+
 function now() {
   return new Date().toISOString();
 }
@@ -329,7 +362,7 @@ export const actions = {
   resetDemo() {
     clearPersisted();
     clearToasts();
-    // Restores the seed orders, the Trusted and Blocked lists, the ₹49 COD fee and free shipping.
+    // Restores the seed orders, the Trusted and Blocked lists, the address book, the ₹49 COD fee and free shipping.
     state = initialState(state.aiAvailable);
     emit();
   },
@@ -430,6 +463,8 @@ export const actions = {
       uncertain: d.uncertain,
       timeline: [{ label: "Link created", at: now() }],
     };
+    // The buyer starts at the mobile number step; prefill it when the chat had a full number.
+    const digits = phone.replace(/\D/g, "");
     clearToasts();
     setState({
       orders: [order, ...s.orders],
@@ -439,13 +474,10 @@ export const actions = {
       linkOrderId: order.id,
       buyer: {
         orderId: order.id,
-        step: "order",
-        name: order.buyerName === "Buyer" ? "" : order.buyerName,
-        phone: order.buyerPhone,
-        address: order.address ?? "",
-        pincode: order.pincode ?? "",
-        city: "",
-        state: "",
+        step: "mobile",
+        phone: /^[6-9]\d{9}$/.test(digits) ? digits : "",
+        otp: "",
+        returning: false,
       },
     });
     return order;
@@ -455,27 +487,62 @@ export const actions = {
     setState((s) => (s.buyer ? { buyer: { ...s.buyer, ...patch } } : {}));
   },
 
-  /** Record the buyer's confirmed delivery details on the order. */
-  saveBuyerDetails() {
-    const b = state.buyer;
+  // ---------- buyer checkout ----------
+
+  /**
+   * After the OTP: a number with a saved address loads it and goes to checkout;
+   * a new number is asked for an address first.
+   */
+  verifyOtp() {
+    const s = state;
+    const b = s.buyer;
     if (!b) return;
-    actions.updateOrder(b.orderId, (o) => ({
-      buyerName: titleCaseName(b.name) || "Buyer",
-      buyerPhone: b.phone.trim(),
-      address: b.address.trim(),
-      pincode: b.pincode.trim(),
-      city: b.city.trim() || undefined,
-      state: b.state.trim() || undefined,
-      // Keep the "from last order" note only while the buyer left that address unchanged.
-      addressSource:
-        o.addressSource === "last_order" && o.address === b.address.trim()
-          ? "last_order"
-          : undefined,
-    }));
+    actions.updateOrder(b.orderId, { buyerPhone: b.phone });
+    const saved = savedAddressesFor(b.phone, s.addressBook);
+    if (saved[0]) {
+      const sel = toSelected(saved[0]);
+      applyAddress(b.orderId, sel);
+      actions.updateBuyer({ step: "main", returning: true, address: sel });
+    } else {
+      actions.updateBuyer({ step: "address", returning: false, address: undefined });
+    }
   },
 
-  /** Online payment succeeded in the mock checkout. */
-  completePayment(orderId: string, purpose: "prepaid" | "partial", amount: number) {
+  /** Use one of the buyer's saved addresses for this order. */
+  useSavedAddress(id: string) {
+    const b = state.buyer;
+    const found = state.addressBook.find((a) => a.id === id);
+    if (!b || !found) return;
+    const sel = toSelected(found);
+    applyAddress(b.orderId, sel);
+    actions.updateBuyer({ address: sel, step: "main" });
+  },
+
+  /** Use a new address for this order, and save it against the mobile number if a label was chosen. */
+  submitAddress(
+    input: Omit<SelectedAddress, "id" | "label"> & { label?: AddressLabel | undefined },
+  ) {
+    const b = state.buyer;
+    if (!b) return;
+    let id: string | undefined;
+    if (input.label) {
+      id = `addr-${Date.now().toString(36)}`;
+      const entry: SavedAddress = { ...input, id, label: input.label, phone: b.phone };
+      setState((s) => ({ addressBook: [...s.addressBook, entry] }));
+    }
+    const sel: SelectedAddress = { ...input, id };
+    applyAddress(b.orderId, sel);
+    actions.updateBuyer({ address: sel, step: "main" });
+  },
+
+  /** Online payment succeeded. */
+  completePayment(
+    orderId: string,
+    purpose: "prepaid" | "partial",
+    amount: number,
+    method: PayMethod = "upi",
+    app?: string,
+  ) {
     const s = state;
     const order = s.orders.find((o) => o.id === orderId);
     if (!order) return;
@@ -488,6 +555,8 @@ export const actions = {
         codFee: prices.codFee,
         shippingCharged: prices.codShipping,
         codCheck: codCheckFor(s, order),
+        method,
+        payApp: app,
       });
       actions.addTimeline(orderId, `Part paid (${formatINR(amount)}), rest on delivery`);
     } else {
@@ -497,6 +566,8 @@ export const actions = {
         paidAmount: amount,
         codFee: 0,
         shippingCharged: prices.prepaidShipping,
+        method,
+        payApp: app,
       });
       actions.addTimeline(orderId, "Paid");
     }
@@ -514,6 +585,7 @@ export const actions = {
       codFee: prices.codFee,
       shippingCharged: prices.codShipping,
       codCheck: codCheckFor(s, order),
+      method: "cod",
     });
     actions.addTimeline(orderId, "COD confirmed");
   },
@@ -546,7 +618,7 @@ export const actions = {
     actions.addTimeline(orderId, "Returned to seller");
   },
 
-  /** Add to Trusted (and take off Blocked). Trusted buyers are always allowed COD. */
+  /** A buyer is on one list at a time: adding to Trusted takes them off Blocked. */
   trustBuyer(phone: string, name: string) {
     setState((s) => ({
       trusted: s.trusted.some((b) => samePhone(b.phone, phone))
@@ -555,13 +627,38 @@ export const actions = {
       blocked: s.blocked.filter((b) => !samePhone(b.phone, phone)),
     }));
   },
+  /** ...and blocking takes them off Trusted. Blocked buyers only get prepaid. */
+  blockBuyer(phone: string, name: string) {
+    setState((s) => ({
+      blocked: s.blocked.some((b) => samePhone(b.phone, phone))
+        ? s.blocked
+        : [...s.blocked, { phone, name, at: now() }],
+      trusted: s.trusted.filter((b) => !samePhone(b.phone, phone)),
+    }));
+  },
   untrustBuyer(phone: string) {
     setState((s) => ({ trusted: s.trusted.filter((b) => !samePhone(b.phone, phone)) }));
   },
   unblockBuyer(phone: string) {
     setState((s) => ({ blocked: s.blocked.filter((b) => !samePhone(b.phone, phone)) }));
   },
+  /** "Add buyer": put someone who hasn't ordered yet straight onto Trusted or Blocked. */
+  addBuyerToList(list: "trusted" | "blocked", phone: string, name: string) {
+    if (list === "trusted") actions.trustBuyer(phone, name);
+    else actions.blockBuyer(phone, name);
+  },
 };
+
+/** Put the chosen delivery details on the order. */
+function applyAddress(orderId: string, a: SelectedAddress) {
+  actions.updateOrder(orderId, {
+    buyerName: titleCaseName(a.name) || "Buyer",
+    address: a.address.trim(),
+    pincode: a.pincode.trim(),
+    city: a.city.trim() || undefined,
+    state: a.state.trim() || undefined,
+  });
+}
 
 function randomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

@@ -1,17 +1,14 @@
 /**
- * Simple COD rules for the prototype, checked when the buyer picks COD:
+ * Simple COD rules, checked when the buyer picks COD:
  *   0. The seller's own choices come first: "Allow COD anyway" (override) and "offer COD on this
  *      order" (the seller always has the final say on payment options).
  *   1. Trusted buyers (the seller's list) are allowed COD.
  *   2. Otherwise: blocked buyers get prepaid only; a buyer with a returned parcel is asked for
  *      a part-payment; everyone else gets COD with a nudge to pay now.
- * There is no score and no risk level. Production would reuse Razorpay Magic Checkout's COD rules.
+ * There is no score and no risk level.
  */
 import { upfrontAmount } from "./money";
 import type { BuyerRef, CodCheck, CodReason, Order } from "./types";
-
-export const COD_NOTE =
-  "Prototype rules. Production would reuse Razorpay Magic Checkout's COD rules.";
 
 export function normalizePhone(phone: string): string {
   return phone.toLowerCase().replace(/[^0-9x]/g, "");

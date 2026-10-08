@@ -1,27 +1,27 @@
-# Chat Checkout (concept prototype)
+# Chat Checkout
 
-A clickable, mobile-first prototype for a product-management challenge. A one-person Instagram or WhatsApp seller pastes a buyer's chat, AI drafts the order, the seller confirms it and shares a payment link from their own WhatsApp, and the buyer checks the order, adds an address and pays. If the buyer picks cash on delivery (COD), a few simple rules decide what they're offered. The seller marks each order Delivered or Returned, and their track record builds from real, paid deliveries.
+A mobile-first app for one-person Instagram and WhatsApp sellers. The seller pastes a buyer's chat, AI drafts the order, the seller confirms it and shares a payment link from their own WhatsApp, and the buyer pays through a checkout modelled on Razorpay Magic Checkout. If the buyer picks cash on delivery (COD), a few simple rules decide what they're offered. The seller marks each order Delivered or Returned, and their track record builds from real, paid deliveries.
 
-> Prototype only: the checkout is simulated and no real payments happen. This is a concept and is not affiliated with or endorsed by Razorpay.
+> This is an unofficial concept build. The checkout is simulated: no real payments happen, the OTP accepts any 6 digits, and nothing is sent to a buyer. It is not affiliated with or endorsed by Razorpay.
 
-## Demo path (under 2 minutes)
+## Full path (under 2 minutes)
 
 1. **Seller app** → **New order** → **Use sample chat** (fills the chat and drafts the order in one tap). Check the draft, then **Create payment link**.
 2. **Share on WhatsApp** (or **Copy message**). The app never messages the buyer itself.
-3. **Buyer view** → **Confirm address** → **Continue to payment**. The prepaid offer and the COD fee sit side by side. Pick **Pay now** and pay with any UPI app.
+3. **Buyer view** → mobile number → **Continue** → any 6 digits → **Continue** → address (new number) → **Continue** → pick a payment method → **Pay**.
 4. **Seller app** → **Orders** → open the order → **Mark delivered**.
 5. **Record** shows the track record grow (paid & delivered orders, return rate).
 
 Tap **Use sample chat** again for the next sample. Each one meets a different COD rule:
 
-| Sample             | Buyer                        | What happens when they pick COD             |
-| ------------------ | ---------------------------- | ------------------------------------------- |
-| 1. New buyer       | Priya (new number)           | COD allowed, with a nudge to pay now        |
-| 2. Returned parcel | Rohit (one returned order)   | Pay a small part now to confirm COD         |
-| 3. Blocked buyer   | Vikram (on the Blocked list) | Prepaid only                                |
-| 4. Trusted buyer   | Anjali (on the Trusted list) | COD allowed; her saved address is prefilled |
+| Sample             | Buyer                        | What they see under Payment Options                              |
+| ------------------ | ---------------------------- | ---------------------------------------------------------------- |
+| 1. New buyer       | Priya (new number)           | COD selectable, with a banner nudging them to pay online         |
+| 2. Returned parcel | Rohit (one returned order)   | "Pay a part now, rest on delivery" with the amount               |
+| 3. Blocked buyer   | Vikram (on the Blocked list) | COD disabled: "COD isn't available for this order"               |
+| 4. Trusted buyer   | Anjali (on the Trusted list) | COD selectable, no banner; her saved address loads after the OTP |
 
-**Reset demo** (top right) restores the seed data: one seller, 12 orders (one returned order, one trusted buyer, one blocked buyer), the ₹49 COD fee, free shipping on prepaid, and the Trusted and Blocked lists. The state is saved in `localStorage`, so a refresh keeps what you created.
+**Reset** (top right) restores the seed data: one seller, 12 orders (one returned order, one trusted buyer, one blocked buyer), saved addresses for the seed buyers, the ₹49 COD fee, free shipping on prepaid, and the Trusted and Blocked lists. The state is saved in `localStorage`, so a refresh keeps what you created.
 
 ## Seller flow
 
@@ -29,12 +29,21 @@ Tap **Use sample chat** again for the next sample. Each one meets a different CO
 - **The seller has the final say.** Every line, the discount (capped at 90% of the subtotal) and the **Payment options** (Pay now + COD, or Pay now only) are editable. Totals are always computed from the lines and can't be typed in. Custom items default to Pay now only.
 - **Share the payment link** from your own WhatsApp (share or copy). **Remind buyer** and **Confirm COD with buyer** work the same way. Every sheet closes with ✕, Escape, a tap outside, after sharing or copying, and when switching between Seller app and Buyer view.
 
-## Buyer flow
+## Buyer checkout
 
-- Checks the order, then enters an address with four address fields (address, pincode, city, state) plus name and phone.
-- **Simple address rules only:** every field filled, a valid pincode (6 digits starting 1–8), and a pincode that matches the city. A mismatch is a gentle amber flag that never blocks the buyer: "Address says X but pincode is for Y – please check." City and state fill from the pincode.
-- **Saved address:** if this phone number has ordered before, its saved address is prefilled.
-- Sees **Pay now** (prepaid offer) and **Cash on delivery** (+ COD fee) side by side.
+A clean white card layout with the Razorpay blue accent and one primary button pinned at the bottom of every step.
+
+1. **Mobile number** → **Continue**. Prefilled from the chat when it had a full number.
+2. **OTP** → any 6 digits → **Continue**.
+   - **Returning number:** its saved address loads after the OTP.
+   - **New number:** the buyer enters an address instead: name plus four address fields (address, pincode, city, state), with **Save my address as** Home, Work or Other.
+3. **Order Summary** (collapsible): items, quantities, amounts and the total.
+4. **Coupons and offers:** shows the seller's discount when the order has one.
+5. **Delivery address**, with an **Add/Change** link to pick another saved address or add a new one.
+6. **Payment Options:** UPI first, then Cards, Netbanking, Wallets, and Cash on Delivery (COD) when the seller allows it. A returning buyer's last-used method is preselected.
+7. **Price summary:** subtotal, discount, shipping and total, with a **COD Fee** line when COD is selected.
+
+**Simple address rules only:** every field filled, a valid pincode (6 digits starting 1–8), and a pincode that matches the city. A mismatch is a gentle amber flag that never blocks the buyer: "Address says X but pincode is for Y – please check." City and state fill from the pincode.
 
 ## COD rules
 
@@ -43,18 +52,23 @@ All in [`src/lib/demo/cod.ts`](src/lib/demo/cod.ts). There is no risk score and 
 0. **The seller's own choices first:** "Allow COD anyway" (override), and "Pay now only" on the order.
 1. **Trusted buyers** (the seller's list) are allowed COD.
 2. Otherwise:
-   - **Blocked buyers** get prepaid only.
+   - **Blocked buyers** can't use COD.
    - A buyer with a **returned parcel** in their history pays a small part now (20% of the order, rounded to ₹10, capped at 50%) to confirm COD.
-   - **Everyone else** is allowed COD, with a nudge to pay now.
+   - **Everyone else** is allowed COD, with a nudge to pay online.
 
-The buyer sees one of three outcomes: **COD allowed**, **a part-payment to confirm COD**, or **prepaid only** (with a one-line reason).
+The outcomes appear inside **Payment Options**:
 
-> Prototype rules. Production would reuse Razorpay Magic Checkout's COD rules.
+- **Allowed:** COD is selectable, with a banner nudging the buyer to pay online instead (no banner for Trusted buyers).
+- **Part-payment:** the COD option reads "Pay a part now, rest on delivery" with the amount.
+- **Blocked:** the COD option is disabled with "COD isn't available for this order".
+- **Pay now only** (the seller's choice): COD isn't listed, with a one-line reason.
 
-## Seller override and Trusted buyers
+## Trusted and Blocked buyers, and overrides
 
-- **Trusted buyers:** mark any buyer as Trusted from the **Buyers** tab or with **Add to trusted** on an order. The same screen lists Blocked buyers (with **Unblock**).
-- **Allow COD anyway:** on an order still awaiting payment where the COD rules say prepaid only or part-payment, the seller can tap this. The buyer's screen updates at once, and the order carries an **Override** tag in the order book.
+- **Buyers tab:** lists Trusted buyers, Blocked buyers and everyone else who has ordered. **+ Add buyer** (name and mobile number) puts someone who hasn't ordered yet straight onto Trusted or Blocked.
+- **On an order:** **Add to trusted** and **Block buyer** sit side by side (with **Remove from trusted** and **Unblock** when they apply).
+- **One list at a time:** blocking removes a buyer from Trusted, and trusting removes them from Blocked.
+- **Allow COD anyway:** on an order still awaiting payment where COD is restricted, the seller can tap this. The buyer's screen updates at once, and the order carries an **Override** tag in the order book.
 
 ## Order book
 
@@ -78,11 +92,12 @@ Catalog prices always come from the catalog. If no key is set, or the call fails
 
 ## What is simulated
 
-- **Checkout:** a mock UPI, card and netbanking sheet. Only UPI completes, and no money moves.
+- **Payment:** every method completes without moving money. The OTP accepts any 6 digits.
 - **WhatsApp:** share shows a toast. Copy really copies the message.
 - **Pincodes:** serviceability and the city/state lookup use small seeded lists.
+- **Saved addresses and last-used payment methods:** seeded for the seed buyers; new ones are saved in this browser.
 - **Delivered / Returned:** manual taps by the seller. There is no courier or tracking integration.
-- **Track record page:** it shows this browser's demo data, not a shared database.
+- **Track record page:** it shows this browser's data, not a shared database.
 
 ## Development
 
@@ -91,7 +106,7 @@ TanStack Start + React + Tailwind, built from a Lovable template and synced with
 ```sh
 bun install
 bun run dev      # http://localhost:8080
-bun run test     # COD rules, track record and full-path tests
+bun run test     # COD rules, checkout steps, track record and full-path tests
 bun run build
 ```
 

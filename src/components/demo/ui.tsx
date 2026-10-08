@@ -1,13 +1,8 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { dueOnDelivery, formatINR, orderTotal } from "@/lib/demo/money";
 import type { Order, OrderStatus } from "@/lib/demo/types";
-
-export function notInPrototype(what?: string) {
-  toast(what ? `${what} – not in prototype` : "Not in prototype");
-}
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "ghost" | "success" | "danger";

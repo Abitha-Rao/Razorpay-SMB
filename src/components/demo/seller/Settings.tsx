@@ -2,7 +2,6 @@ import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Btn, Card, Field, ScreenHeader, SectionTitle, inputCls } from "@/components/demo/ui";
-import { COD_NOTE } from "@/lib/demo/cod";
 import { formatINR } from "@/lib/demo/money";
 import { actions, useStore } from "@/lib/demo/store";
 import { cn } from "@/lib/utils";
@@ -34,7 +33,6 @@ export function SettingsScreen() {
                 <li key={r}>{r}</li>
               ))}
             </ol>
-            <p className="mt-2 text-[10px] text-navy/40">{COD_NOTE}</p>
           </Card>
         </section>
 

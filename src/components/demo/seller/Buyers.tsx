@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { toast } from "sonner";
 
-import { Card, ScreenHeader, SectionTitle } from "@/components/demo/ui";
+import { Btn, Card, Field, ScreenHeader, SectionTitle, inputCls } from "@/components/demo/ui";
 import { isListed, normalizePhone } from "@/lib/demo/cod";
 import { actions, useStore } from "@/lib/demo/store";
 import type { BuyerRef } from "@/lib/demo/types";
+import { cn } from "@/lib/utils";
 
 type Person = { phone: string; name: string; orders: number; delivered: number; returned: number };
 
@@ -12,6 +14,7 @@ export function Buyers() {
   const orders = useStore((s) => s.orders);
   const trusted = useStore((s) => s.trusted);
   const blocked = useStore((s) => s.blocked);
+  const [adding, setAdding] = useState(false);
 
   // One row per phone number, from the order book (newest order first, so the latest name wins).
   const byPhone = new Map<string, Person>();
@@ -37,11 +40,21 @@ export function Buyers() {
 
   return (
     <div className="pb-8">
-      <ScreenHeader title="Buyers" />
+      <ScreenHeader
+        title="Buyers"
+        right={
+          <button className="text-xs font-semibold text-rzp" onClick={() => setAdding((a) => !a)}>
+            {adding ? "Cancel" : "+ Add buyer"}
+          </button>
+        }
+      />
       <div className="space-y-5 px-4 pt-4">
         <p className="text-xs leading-relaxed text-navy/60">
-          Trusted buyers are always allowed COD. Blocked buyers can only pay now.
+          Trusted buyers are always allowed COD. Blocked buyers can only pay now. A buyer is on one
+          list at a time.
         </p>
+
+        {adding && <AddBuyer onDone={() => setAdding(false)} />}
 
         <section>
           <SectionTitle>Trusted buyers</SectionTitle>
@@ -144,5 +157,55 @@ function Row({
         {action}
       </button>
     </li>
+  );
+}
+
+/** "Add buyer": put someone who hasn't ordered yet straight onto Trusted or Blocked. */
+function AddBuyer({ onDone }: { onDone: () => void }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [list, setList] = useState<"trusted" | "blocked">("trusted");
+  const valid = name.trim().length > 0 && /^[6-9]\d{9}$/.test(phone);
+
+  return (
+    <Card className="space-y-3 bg-white ring-1 ring-navy/10">
+      <Field label="Name">
+        <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="Mobile number">
+        <input
+          className={inputCls}
+          inputMode="numeric"
+          maxLength={10}
+          value={phone}
+          onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        {(["trusted", "blocked"] as const).map((l) => (
+          <button
+            key={l}
+            onClick={() => setList(l)}
+            className={cn(
+              "rounded-xl border-2 px-3 py-2.5 text-sm font-medium",
+              list === l ? "border-rzp bg-rzp/8 text-navy" : "border-navy/12 text-navy/60",
+            )}
+          >
+            {l === "trusted" ? "Trusted" : "Blocked"}
+          </button>
+        ))}
+      </div>
+      <Btn
+        className="w-full"
+        disabled={!valid}
+        onClick={() => {
+          actions.addBuyerToList(list, phone, name.trim());
+          toast(`${name.trim()} added to ${list === "trusted" ? "Trusted" : "Blocked"} buyers`);
+          onDone();
+        }}
+      >
+        Add buyer
+      </Btn>
+    </Card>
   );
 }
