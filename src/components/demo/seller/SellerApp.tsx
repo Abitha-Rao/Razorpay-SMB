@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 
+import { Buyers } from "@/components/demo/seller/Buyers";
 import { Home } from "@/components/demo/seller/Home";
 import { NewOrder } from "@/components/demo/seller/NewOrder";
 import { OrderDetail } from "@/components/demo/seller/OrderDetail";
 import { Orders } from "@/components/demo/seller/Orders";
 import { SheetHost } from "@/components/demo/seller/Sheets";
 import { SettingsScreen } from "@/components/demo/seller/Settings";
-import { Summary } from "@/components/demo/seller/Summary";
+import { TrackRecordScreen } from "@/components/demo/seller/TrackRecord";
 import { actions, useStore, type SellerTab } from "@/lib/demo/store";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +22,21 @@ const NAV: { tab: SellerTab; label: string; icon: ReactNode }[] = [
     label: "Orders",
     icon: <path d="M6 3h12a1 1 0 011 1v17l-3-2-3 2-3-2-3 2-2-1.5V4a1 1 0 011-1zM9 8h6M9 12h6" />,
   },
-  { tab: "summary", label: "Summary", icon: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /> },
+  {
+    tab: "buyers",
+    label: "Buyers",
+    icon: (
+      <>
+        <circle cx="9" cy="8" r="3.2" />
+        <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 5.5a3 3 0 010 5.8M18 14.2c1.8.8 3 2.6 3 4.8" />
+      </>
+    ),
+  },
+  {
+    tab: "record",
+    label: "Record",
+    icon: <path d="M12 3l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.1l5.8-.8z" />,
+  },
   {
     tab: "settings",
     label: "Settings",
@@ -43,13 +58,14 @@ export function SellerApp() {
   else if (screen.kind === "order") content = <OrderDetail id={screen.id} />;
   else if (tab === "home") content = <Home />;
   else if (tab === "orders") content = <Orders />;
-  else if (tab === "summary") content = <Summary />;
+  else if (tab === "buyers") content = <Buyers />;
+  else if (tab === "record") content = <TrackRecordScreen />;
   else content = <SettingsScreen />;
 
   return (
     <div className="relative flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">{content}</div>
-      <nav className="grid shrink-0 grid-cols-4 border-t border-navy/8 bg-white pb-1">
+      <nav className="grid shrink-0 grid-cols-5 border-t border-navy/8 bg-white pb-1">
         {NAV.map((n) => {
           const active = tab === n.tab && screen.kind !== "new";
           return (

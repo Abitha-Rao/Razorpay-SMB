@@ -1,61 +1,51 @@
 /**
- * Hard-coded fallbacks so the demo always works without an API key (and so the
- * recorded demo can't be spoiled by a slow call). Exact preset chats return the
- * expected drafts; any other text goes through a small keyword parser.
+ * Hard-coded fallbacks so the demo always works without an API key (and so the recorded demo
+ * can't be spoiled by a slow call). The sample chats return fixed drafts; any other text goes
+ * through a small keyword parser.
  */
-import { assessAddress } from "./risk";
-import type { AddressResult, CatalogItem, DraftResult } from "./types";
+import type { CatalogItem, DraftResult } from "./types";
 
-export type Preset = {
-  key: "regular" | "cod" | "custom";
+export type Sample = {
+  key: "new" | "returned" | "blocked" | "trusted";
+  /** What this sample shows, for the caption under "Use sample chat". */
   label: string;
   /** Simulates the chat being shared from this WhatsApp contact. */
   from?: { name: string; phone: string } | undefined;
   chat: string;
 };
 
-export const PRESETS: Preset[] = [
+/**
+ * "Use sample chat" cycles through these. Each one meets a different COD rule:
+ * a new buyer, a buyer with a returned parcel, a blocked buyer and a trusted buyer.
+ */
+export const SAMPLES: Sample[] = [
   {
-    key: "regular",
-    label: "Regular buyer",
+    key: "new",
+    label: "New buyer asks for COD",
+    chat: "hi, the green bandhani saree pls, cod. send to flat 12 b block near hanuman mandir sector 4 rohini delhi 110085. priya 9811204521",
+  },
+  {
+    key: "returned",
+    label: "Buyer with an earlier returned parcel",
+    chat: "hello, rohit here 9811122233. 1 green bandhani saree, cod please. address: house 7 gali 3 aliganj lucknow 226024",
+  },
+  {
+    key: "blocked",
+    label: "Buyer on your Blocked list",
+    chat: "need 1 block print dupatta, cod. vikram 9414055667. address: ward 9 near bus stand sikar 332001",
+  },
+  {
+    key: "trusted",
+    label: "Trusted regular buyer",
     from: { name: "Anjali Verma", phone: "98290 11223" },
-    chat: "Hi di, same blue kurti as last time, size M, 2 pieces. Send to my old address. Will pay on GPay.",
-  },
-  {
-    key: "cod",
-    label: "New COD buyer",
-    chat: "want the green bandhani saree, cod pls, address: flat 12 b block near hanuman mandir sector 4 rohini delhi 110085, priya 98xxxxxx21",
-  },
-  {
-    key: "custom",
-    label: "Custom order",
-    chat: "Can you make a lehenga in maroon with gold border, budget around 4500? Need by 20th.",
+    chat: "Hi di, same blue kurti as last time, size M, 2 pieces. Send to my old address. COD is fine.",
   },
 ];
 
-const PRESET_DRAFTS: Record<Preset["key"], DraftResult> = {
-  regular: {
-    buyer_name: "Anjali Verma",
-    buyer_phone: "98290 11223",
-    lines: [
-      {
-        type: "catalog",
-        catalog_id: "kurti-blue",
-        name: "Blue cotton kurti",
-        qty: 2,
-        unit_price: 1200,
-        size: "M",
-      },
-    ],
-    discount: null,
-    payment_hint: "prepaid",
-    address_text: null,
-    pincode: null,
-    uncertain: [],
-  },
-  cod: {
+const SAMPLE_DRAFTS: Record<Sample["key"], DraftResult> = {
+  new: {
     buyer_name: "Priya",
-    buyer_phone: "98xxxxxx21",
+    buyer_phone: "9811204521",
     lines: [
       {
         type: "catalog",
@@ -69,32 +59,62 @@ const PRESET_DRAFTS: Record<Preset["key"], DraftResult> = {
     payment_hint: "cod",
     address_text: "flat 12 b block near hanuman mandir sector 4 rohini delhi 110085",
     pincode: "110085",
-    uncertain: [
-      "Quantity not mentioned – assumed 1",
-      "Phone number looks partly hidden – check with the buyer",
-    ],
+    uncertain: ["Quantity not mentioned – assumed 1"],
   },
-  custom: {
-    buyer_name: null,
-    buyer_phone: null,
+  returned: {
+    buyer_name: "Rohit",
+    buyer_phone: "9811122233",
     lines: [
       {
-        type: "custom",
-        name: "Maroon lehenga with gold border (custom)",
+        type: "catalog",
+        catalog_id: "saree-bandhani-green",
+        name: "Green bandhani saree",
         qty: 1,
-        unit_price: null,
+        unit_price: 2450,
       },
     ],
     discount: null,
-    payment_hint: "unknown",
+    payment_hint: "cod",
+    address_text: "house 7 gali 3 aliganj lucknow 226024",
+    pincode: "226024",
+    uncertain: [],
+  },
+  blocked: {
+    buyer_name: "Vikram",
+    buyer_phone: "9414055667",
+    lines: [
+      {
+        type: "catalog",
+        catalog_id: "dupatta-blockprint",
+        name: "Block-print dupatta",
+        qty: 1,
+        unit_price: 650,
+      },
+    ],
+    discount: null,
+    payment_hint: "cod",
+    address_text: "ward 9 near bus stand sikar 332001",
+    pincode: "332001",
+    uncertain: [],
+  },
+  trusted: {
+    buyer_name: "Anjali Verma",
+    buyer_phone: "98290 11223",
+    lines: [
+      {
+        type: "catalog",
+        catalog_id: "kurti-blue",
+        name: "Blue cotton kurti",
+        qty: 2,
+        unit_price: 1200,
+        size: "M",
+      },
+    ],
+    discount: null,
+    payment_hint: "cod",
     address_text: null,
     pincode: null,
-    uncertain: [
-      "Price not set – buyer's budget is around ₹4,500",
-      "Size and measurements not mentioned",
-      "Needs delivery by the 20th – check you can make it in time",
-      "Buyer name and phone not in chat",
-    ],
+    uncertain: [],
   },
 };
 
@@ -109,10 +129,10 @@ const ITEM_KEYWORDS: Record<string, RegExp> = {
 export function fallbackDraft(
   chat: string,
   catalog: CatalogItem[],
-  from?: Preset["from"] | undefined,
+  from?: Sample["from"] | undefined,
 ): DraftResult {
-  const preset = PRESETS.find((p) => p.chat.trim() === chat.trim());
-  if (preset) return structuredClone(PRESET_DRAFTS[preset.key]);
+  const sample = SAMPLES.find((p) => p.chat.trim() === chat.trim());
+  if (sample) return structuredClone(SAMPLE_DRAFTS[sample.key]);
 
   const uncertain: string[] = [];
   const qtyMatch =
@@ -198,64 +218,6 @@ export function fallbackDraft(
     pincode,
     uncertain,
   };
-}
-
-const CITIES = [
-  "delhi",
-  "new delhi",
-  "jaipur",
-  "mumbai",
-  "pune",
-  "bengaluru",
-  "bangalore",
-  "chennai",
-  "kolkata",
-  "lucknow",
-  "hyderabad",
-  "ahmedabad",
-  "noida",
-  "gurgaon",
-  "gurugram",
-];
-
-function titleCase(s: string) {
-  return s.replace(/\b([a-z])([a-z]*)/g, (_, a: string, b: string) => a.toUpperCase() + b);
-}
-
-/** Rule-based tidy-up: spacing, capitalisation, comma-separated parts. Never adds details. */
-export function fallbackCleanAddress(raw: string): AddressResult {
-  let a = raw.replace(/\s+/g, " ").trim().toLowerCase();
-  const pin = a.match(/\b[1-9]\d{5}\b/)?.[0];
-  if (pin) a = a.replace(pin, "").trim();
-
-  let parts: string[];
-  if (a.includes(",")) {
-    parts = a
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
-  } else {
-    // Split before common address markers when the buyer typed no commas.
-    const marked = a
-      .replace(/\b(flat|house|plot|h\.?\s?no\.?)\s*(\d+\w?)/g, "|$1 $2|")
-      .replace(/\b([a-z])\s+block\b/g, "|$1 block|")
-      .replace(/\b(near|opp|opposite|behind)\b/g, "|$1")
-      .replace(/\b(sector|phase)\s*(\d+)/g, "|$1 $2|");
-    parts = marked
-      .split("|")
-      .map((p) => p.trim())
-      .filter(Boolean);
-    // Peel known city off the last part ("rohini delhi" -> "rohini", "delhi").
-    const last = parts[parts.length - 1] ?? "";
-    const city = CITIES.find((c) => last.endsWith(" " + c) && last !== c);
-    if (city) parts.splice(parts.length - 1, 1, last.slice(0, -city.length).trim(), city);
-  }
-
-  const cleaned = parts.map((p) => titleCase(p).replace(/\b([A-Z])\b(?= Block)/, "$1")).join(", ");
-  const clean_address = pin ? `${cleaned} ${pin}` : cleaned;
-  const { confidence, missing } = assessAddress(clean_address);
-  if (!pin) missing.push("Pincode");
-  return { clean_address, missing, confidence };
 }
 
 /** "same address as last time", "send to my old address", "usual address"… */

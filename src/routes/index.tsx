@@ -7,17 +7,17 @@ import { Toaster } from "@/components/ui/sonner";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Razorpay Order Link (concept)" },
+      { title: "Chat Checkout (concept)" },
       {
         name: "description",
         content:
-          "Clickable prototype: AI-drafted order links with smart COD for Instagram and WhatsApp sellers.",
+          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
-      { property: "og:title", content: "Razorpay Order Link (concept)" },
+      { property: "og:title", content: "Chat Checkout (concept)" },
       {
         property: "og:description",
         content:
-          "Clickable prototype: AI-drafted order links with smart COD for Instagram and WhatsApp sellers.",
+          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

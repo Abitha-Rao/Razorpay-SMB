@@ -16,9 +16,8 @@ const STATUS_FILTERS: { key: OrderStatus | "all"; label: string }[] = [
   { key: "paid", label: "Paid" },
   { key: "cod_confirmed", label: "COD confirmed" },
   { key: "partial_paid", label: "Partial paid" },
-  { key: "shipped", label: "Shipped" },
   { key: "delivered", label: "Delivered" },
-  { key: "refused", label: "Returned" },
+  { key: "returned", label: "Returned" },
 ];
 
 const PAY_FILTERS = [

@@ -1,13 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { Btn, Field, inputCls } from "@/components/demo/ui";
+import { Btn } from "@/components/demo/ui";
 import { MESSAGE_TITLE, buyerMessage, linkUrl, type MessageKind } from "@/lib/demo/messages";
-import { dueOnDelivery, formatINR, totalWeight } from "@/lib/demo/money";
-import { COURIERS, fullAddress } from "@/lib/demo/shipping";
 import { actions, useStore } from "@/lib/demo/store";
-import type { Courier, Order } from "@/lib/demo/types";
-import { cn } from "@/lib/utils";
+import type { Order } from "@/lib/demo/types";
 
 /** Renders whichever sheet the store says is open. Lives at the seller app root. */
 export function SheetHost() {
@@ -16,7 +13,6 @@ export function SheetHost() {
     s.sheet ? s.orders.find((o) => o.id === s.sheet!.orderId) : undefined,
   );
   if (!sheet || !order) return null;
-  if (sheet.kind === "ship") return <ShipSheet order={order} />;
   return <MessageSheet kind={sheet.kind} order={order} />;
 }
 
@@ -120,97 +116,5 @@ function MessageSheet({ kind, order }: { kind: MessageKind; order: Order }) {
         </Btn>
       </div>
     </BottomSheet>
-  );
-}
-
-function ShipSheet({ order }: { order: Order }) {
-  const [courier, setCourier] = useState<Courier>("Delhivery");
-  const [awb, setAwb] = useState("");
-  const collect = dueOnDelivery(order);
-  const address = fullAddress(order);
-  const weight = totalWeight(order.lines);
-  const needsAwb = courier !== "Other";
-  const canShip = !needsAwb || awb.trim().length >= 4;
-
-  const courierText = [
-    order.buyerName,
-    order.buyerPhone,
-    address,
-    `Weight: ${weight.toFixed(1)} kg`,
-    collect > 0 ? `COD – collect ${formatINR(collect)}` : "Prepaid – collect nothing",
-  ].join("\n");
-
-  return (
-    <BottomSheet
-      title="Ship order"
-      subtitle={`${order.id} · book with your courier, then add the tracking number`}
-    >
-      <div className="space-y-1.5 rounded-2xl bg-surface p-3 text-sm">
-        <Row label="Name" value={order.buyerName} />
-        <Row label="Phone" value={order.buyerPhone || "—"} />
-        <Row label="Address" value={address || "—"} />
-        <Row label="Pincode" value={order.pincode ?? "—"} />
-        <Row label="Weight" value={`${weight.toFixed(1)} kg`} />
-        <Row
-          label="Amount to collect"
-          value={collect > 0 ? formatINR(collect) : "Nothing (prepaid)"}
-          strong={collect > 0}
-        />
-      </div>
-      <Btn
-        variant="secondary"
-        className="mt-2 w-full"
-        onClick={() => {
-          copyText(courierText);
-          toast("Copied for courier");
-        }}
-      >
-        Copy for courier
-      </Btn>
-
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <Field label="Courier">
-          <select
-            className={inputCls}
-            value={courier}
-            onChange={(e) => setCourier(e.target.value as Courier)}
-          >
-            {COURIERS.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label={needsAwb ? "Tracking number" : "Tracking number (optional)"}>
-          <input
-            className={inputCls}
-            value={awb}
-            placeholder={needsAwb ? "e.g. 1490 2231 7781" : "Optional"}
-            onChange={(e) => setAwb(e.target.value)}
-          />
-        </Field>
-      </div>
-      <Btn
-        size="lg"
-        className="mt-4 w-full"
-        disabled={!canShip}
-        onClick={() => actions.shipOrder(order.id, courier, awb)}
-      >
-        Mark as shipped
-      </Btn>
-      {!canShip && (
-        <p className="mt-1.5 text-center text-xs text-[#b54708]">
-          Add the tracking number from {courier}.
-        </p>
-      )}
-    </BottomSheet>
-  );
-}
-
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <span className="shrink-0 text-navy/55">{label}</span>
-      <span className={cn("text-right text-navy", strong && "font-semibold")}>{value}</span>
-    </div>
   );
 }

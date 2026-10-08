@@ -2,19 +2,23 @@ import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Btn, Card, Field, ScreenHeader, SectionTitle, inputCls } from "@/components/demo/ui";
+import { COD_NOTE } from "@/lib/demo/cod";
 import { formatINR } from "@/lib/demo/money";
-import { STRICTNESS_COPY, THRESHOLDS } from "@/lib/demo/risk";
-import { trustBadgeCount } from "@/lib/demo/seed";
 import { actions, useStore } from "@/lib/demo/store";
-import type { Strictness } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
+
+const COD_RULES = [
+  "Trusted buyers are always allowed COD.",
+  "Blocked buyers can only pay now.",
+  "A buyer whose earlier parcel was returned pays a small part now to confirm COD.",
+  "Everyone else is allowed COD, with a nudge to pay now.",
+  "You can allow COD anyway on any order.",
+];
 
 export function SettingsScreen() {
   const settings = useStore((s) => s.settings);
   const catalog = useStore((s) => s.catalog);
   const aiAvailable = useStore((s) => s.aiAvailable);
-  const orders = useStore((s) => s.orders);
-  const codBlocked = useStore((s) => s.codBlocked);
   const [adding, setAdding] = useState(false);
   const [item, setItem] = useState({ name: "", price: "", weight: "" });
 
@@ -23,68 +27,15 @@ export function SettingsScreen() {
       <ScreenHeader title="Settings" />
       <div className="space-y-6 px-4 pt-4">
         <section>
-          <SectionTitle>How strict should COD be?</SectionTitle>
-          <div className="space-y-2">
-            {(Object.keys(STRICTNESS_COPY) as Strictness[]).map((k) => (
-              <button
-                key={k}
-                onClick={() => actions.updateSettings({ strictness: k })}
-                className={cn(
-                  "flex w-full gap-3 rounded-2xl border-2 p-3 text-left",
-                  settings.strictness === k ? "border-rzp bg-rzp/5" : "border-navy/10",
-                )}
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 h-4 w-4 shrink-0 rounded-full border-2",
-                    settings.strictness === k
-                      ? "border-rzp bg-rzp ring-2 ring-inset ring-white"
-                      : "border-navy/25",
-                  )}
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-navy">
-                    {STRICTNESS_COPY[k].label}
-                    {k === "balanced" && (
-                      <span className="ml-1.5 text-xs font-normal text-navy/50">(default)</span>
-                    )}
-                  </span>
-                  <span className="block text-xs text-navy/60">{STRICTNESS_COPY[k].line}</span>
-                  <span className="mt-0.5 block text-[10px] text-navy/40">
-                    Upfront part from score {THRESHOLDS[k].medium} · prepaid only from{" "}
-                    {THRESHOLDS[k].high}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <SectionTitle>COD not allowed</SectionTitle>
-          {codBlocked.length === 0 ? (
-            <p className="rounded-2xl bg-surface p-3 text-xs text-navy/55">
-              No numbers yet. When you mark a parcel as returned, the buyer's number is added here
-              and they'll only see Pay now.
-            </p>
-          ) : (
-            <ul className="divide-y divide-navy/8 rounded-2xl bg-surface px-3">
-              {codBlocked.map((c) => (
-                <li key={c.phone} className="flex items-center justify-between py-2.5">
-                  <div>
-                    <p className="text-sm font-medium text-navy">{c.name}</p>
-                    <p className="text-[11px] text-navy/50">{c.phone} · prepaid only</p>
-                  </div>
-                  <button
-                    className="text-xs font-semibold text-risk"
-                    onClick={() => actions.unblockPhone(c.phone)}
-                  >
-                    Remove
-                  </button>
-                </li>
+          <SectionTitle>COD rules</SectionTitle>
+          <Card>
+            <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-navy/75">
+              {COD_RULES.map((r) => (
+                <li key={r}>{r}</li>
               ))}
-            </ul>
-          )}
+            </ol>
+            <p className="mt-2 text-[10px] text-navy/40">{COD_NOTE}</p>
+          </Card>
         </section>
 
         <section className="grid grid-cols-2 gap-3">
@@ -115,10 +66,10 @@ export function SettingsScreen() {
 
         <section className="space-y-2">
           <Toggle
-            label="Show my completed-order count to buyers"
-            sub={`Buyers see “${trustBadgeCount(orders)} orders completed via Razorpay” on your link. Counts only payment-verified deliveries, minus returns.`}
-            checked={settings.showOrderCount}
-            onChange={(v) => actions.updateSettings({ showOrderCount: v })}
+            label="Show my track record to buyers"
+            sub="Buyers see your paid & delivered orders and return rate on your payment link."
+            checked={settings.showTrackRecord}
+            onChange={(v) => actions.updateSettings({ showTrackRecord: v })}
           />
           <Toggle
             label="Use live AI (Claude)"
@@ -135,7 +86,7 @@ export function SettingsScreen() {
             }
             sub={
               aiAvailable
-                ? "Claude Haiku drafts orders, tidies addresses and explains COD decisions."
+                ? "Claude Haiku drafts orders from the buyer's chat."
                 : "Add ANTHROPIC_API_KEY as a server secret to turn this on."
             }
             checked={settings.useLiveAi && aiAvailable}

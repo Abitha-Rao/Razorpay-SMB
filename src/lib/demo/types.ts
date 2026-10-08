@@ -19,55 +19,27 @@ export type OrderLine = {
 
 export type Discount = { type: "flat" | "percent"; value: number } | null;
 
+/** Sellers mark each order Delivered or Returned by hand. */
 export type OrderStatus =
-  | "awaiting_payment"
-  | "paid"
-  | "cod_confirmed"
-  | "partial_paid"
-  | "shipped"
-  | "delivered"
-  | "refused";
+  "awaiting_payment" | "paid" | "cod_confirmed" | "partial_paid" | "delivered" | "returned";
 
 /** How the buyer settled (or will settle) the order. */
 export type PaymentMode = "pending" | "prepaid" | "cod" | "partial";
 
-export type Strictness = "relaxed" | "balanced" | "strict";
+/** What the simple COD rules decide when a buyer picks COD. */
+export type CodAction = "allowed" | "part_payment" | "prepaid_only";
 
-export type RiskTier = "low" | "medium" | "high";
+/** Which rule produced the decision, in the order the rules are checked. */
+export type CodReason = "override" | "seller" | "trusted" | "blocked" | "returned" | "default";
 
-export type RiskReasonCode =
-  | "new_phone"
-  | "past_refusal"
-  | "low_address"
-  | "tier3_pincode"
-  | "high_value"
-  | "custom_line"
-  | "repeat_buyer"
-  | "cod_blocked";
-
-export type RiskReason = {
-  code: RiskReasonCode;
-  points: number;
-  label: string;
-  /** For low_address: what was missing. */
-  detail?: "no_house" | "no_street" | undefined;
-};
-
-export type RiskResult = {
-  score: number;
-  tier: RiskTier;
-  reasons: RiskReason[];
-  /** Which payment options the buyer is shown. */
-  action: "cod_allowed" | "partial_upfront" | "prepaid_only";
+export type CodCheck = {
+  action: CodAction;
+  reason: CodReason;
+  /** COD is allowed, but the buyer is nudged to pay now instead. */
+  prepayNudge: boolean;
+  /** Advance to pay now when action is part_payment. */
   upfrontAmount?: number | undefined;
-  /** Why COD was switched off, when action is prepaid_only. */
-  prepaidReason?: "custom" | "blocked" | "score" | undefined;
 };
-
-/** How the buyer finally settled after seeing the options. */
-export type RiskOutcome = "cod" | "partial" | "prepaid";
-
-export type Courier = "Delhivery" | "Shadowfax" | "Ekart" | "India Post" | "DTDC" | "Other";
 
 export type TimelineEvent = { label: string; at: string };
 
@@ -79,42 +51,38 @@ export type Order = {
   buyerPhone: string;
   address?: string | undefined;
   pincode?: string | undefined;
+  city?: string | undefined;
+  state?: string | undefined;
+  /** Address was copied from this phone's last order ("same address as last time"). */
+  addressSource?: "last_order" | undefined;
   lines: OrderLine[];
   discount: Discount;
   status: OrderStatus;
   paymentMode: PaymentMode;
-  /** Amount collected online so far. */
+  /** Amount collected so far (through the link, or in cash once delivered). */
   paidAmount: number;
   /** COD fee charged on this order (0 if prepaid). */
   codFee: number;
   /** Shipping charged on this order (0 if waived for prepaid). */
   shippingCharged: number;
-  city?: string | undefined;
-  state?: string | undefined;
-  /** Address was copied from this phone's last order ("same address as last time"). */
-  addressSource?: "last_order" | undefined;
-  risk?: RiskResult | undefined;
-  verdict?: string | undefined;
-  verdictSource?: "claude" | "template" | undefined;
+  /** The seller decides whether COD is offered on this order at all. */
+  codOffered: boolean;
+  /** The seller tapped "Allow COD anyway". Shown as an "Override" tag. */
+  override?: boolean | undefined;
+  /** The COD check as it stood when the buyer picked COD. */
+  codCheck?: CodCheck | undefined;
   timeline: TimelineEvent[];
   uncertain?: string[] | undefined;
-  courier?: Courier | undefined;
-  awb?: string | undefined;
-  shippedAt?: string | undefined;
-  /** Who marked it delivered: the courier feed (seed), the seller, the 10-day rule, or a doorstep UPI payment. */
-  deliveredBy?: "courier" | "seller" | "auto" | "upi" | undefined;
-  /** Paid online (prepaid, part-paid or doorstep UPI) – counts towards the trust badge. */
-  paymentVerified?: boolean | undefined;
 };
 
-export type BlockedPhone = { phone: string; name: string; at: string };
+/** A buyer on the seller's Trusted or Blocked list. */
+export type BuyerRef = { phone: string; name: string; at: string };
 
 export type Settings = {
-  strictness: Strictness;
   codFee: number;
   prepaidOffer: "free_shipping" | "none";
   shipping: number;
-  showOrderCount: boolean;
+  showTrackRecord: boolean;
   useLiveAi: boolean;
 };
 
@@ -141,12 +109,6 @@ export type DraftResult = {
   address_text?: string | null;
   pincode?: string | null;
   uncertain: string[];
-};
-
-export type AddressResult = {
-  clean_address: string;
-  missing: string[];
-  confidence: "high" | "medium" | "low";
 };
 
 export type AiSource = "claude" | "fallback";

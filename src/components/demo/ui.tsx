@@ -3,7 +3,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { dueOnDelivery, formatINR, orderTotal } from "@/lib/demo/money";
-import type { Order, OrderStatus, RiskTier } from "@/lib/demo/types";
+import type { Order, OrderStatus } from "@/lib/demo/types";
 
 export function notInPrototype(what?: string) {
   toast(what ? `${what} – not in prototype` : "Not in prototype");
@@ -27,7 +27,7 @@ export function Btn({ variant = "primary", size = "md", className, ...props }: B
         variant === "secondary" && "border border-rzp/30 bg-white text-rzp hover:bg-rzp/5",
         variant === "ghost" && "text-navy/70 hover:bg-surface",
         variant === "success" && "bg-success text-white hover:bg-success/90",
-        variant === "danger" && "bg-risk text-white hover:bg-risk/90",
+        variant === "danger" && "bg-danger text-white hover:bg-danger/90",
         className,
       )}
     />
@@ -87,9 +87,8 @@ export const STATUS_META: Record<OrderStatus, { label: string; cls: string }> = 
   paid: { label: "Paid", cls: "bg-success/12 text-[#027a48]" },
   cod_confirmed: { label: "COD confirmed", cls: "bg-rzp/12 text-rzp-dark" },
   partial_paid: { label: "Partial paid", cls: "bg-[#7a5af8]/12 text-[#5925dc]" },
-  shipped: { label: "Shipped", cls: "bg-navy/8 text-navy" },
   delivered: { label: "Delivered", cls: "bg-success/12 text-[#027a48]" },
-  refused: { label: "Returned (RTO)", cls: "bg-risk/12 text-[#b42318]" },
+  returned: { label: "Returned", cls: "bg-danger/12 text-[#b42318]" },
 };
 
 export function StatusChip({ status }: { status: OrderStatus }) {
@@ -100,12 +99,6 @@ export function StatusChip({ status }: { status: OrderStatus }) {
     </span>
   );
 }
-
-export const TIER_META: Record<RiskTier, { label: string; cls: string; dot: string }> = {
-  low: { label: "Low risk", cls: "bg-success/10 text-[#027a48]", dot: "bg-success" },
-  medium: { label: "Medium risk", cls: "bg-warning/12 text-[#b54708]", dot: "bg-warning" },
-  high: { label: "High risk", cls: "bg-risk/10 text-[#b42318]", dot: "bg-risk" },
-};
 
 export function FilterChip({
   active,
@@ -213,20 +206,20 @@ export function OrderAmount({ order }: { order: Order }) {
   );
 }
 
-/** Small tag on deliveries the seller marked themselves (not confirmed by courier or payment). */
-export function MarkedByYou() {
+/** Small tag on orders where the seller tapped "Allow COD anyway". */
+export function OverrideTag() {
   return (
-    <span className="rounded-full border border-navy/15 px-2 py-0.5 text-[10px] font-medium text-navy/55">
-      Marked by you
+    <span className="rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-[#b54708]">
+      Override
     </span>
   );
 }
 
-/** Status chip plus the "Marked by you" tag, for order lists. */
+/** Status chip plus the "Override" tag, for order lists. */
 export function OrderStatusTags({ order }: { order: Order }) {
   return (
     <span className="flex items-center gap-1">
-      {order.deliveredBy === "seller" && <MarkedByYou />}
+      {order.override && <OverrideTag />}
       <StatusChip status={order.status} />
     </span>
   );

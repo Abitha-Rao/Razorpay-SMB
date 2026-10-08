@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { TrackRecordBadge } from "@/components/demo/TrackRecordParts";
 import {
   Btn,
   Card,
@@ -10,17 +11,14 @@ import {
   inputCls,
   notInPrototype,
 } from "@/components/demo/ui";
-import { AI_TIMEOUT_MS, cleanAddressFn, explainRiskFn } from "@/lib/demo/ai.functions";
-import { fallbackCleanAddress } from "@/lib/demo/fallback";
+import { fullAddress } from "@/lib/demo/address";
+import { COD_NOTE, prepaidOnlyReason } from "@/lib/demo/cod";
 import { linkUrl } from "@/lib/demo/messages";
 import { buyerPrices, dueOnDelivery, formatINR, lineTotal, subtotal } from "@/lib/demo/money";
 import { checkPincode, cityFromAddress, knownCityIn } from "@/lib/demo/pincode";
-import { buyerPrepaidReason, outcomePhrase } from "@/lib/demo/risk";
-import { SELLER, trustBadgeCount } from "@/lib/demo/seed";
-import { fullAddress, trackingUrl } from "@/lib/demo/shipping";
-import { actions, getState, useStore } from "@/lib/demo/store";
-import { withTimeout } from "@/lib/demo/timeout";
-import type { Order, RiskOutcome } from "@/lib/demo/types";
+import { SELLER } from "@/lib/demo/seed";
+import { actions, codCheckFor, getState, lastAddressFor, useStore } from "@/lib/demo/store";
+import type { Order } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
 
 const CHECKING_MS = 1000;
@@ -52,8 +50,9 @@ export function BuyerApp() {
       <div className="space-y-4 px-4 pt-4">
         {buyer.step === "order" && <OrderStep order={order} />}
         {buyer.step === "address" && <AddressStep order={order} />}
-        {buyer.step === "checking" && <Checking />}
         {buyer.step === "payment" && <PaymentStep order={order} />}
+        {buyer.step === "checking" && <Checking />}
+        {buyer.step === "cod_outcome" && <CodOutcome order={order} />}
         {buyer.step === "checkout" && <MockCheckout order={order} />}
         {buyer.step === "done" && <Confirmation order={order} />}
       </div>
@@ -65,9 +64,10 @@ function NoLink() {
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-24 text-center">
       <div className="mb-3 text-4xl">🔗</div>
-      <h2 className="text-lg font-semibold text-navy">No order link yet</h2>
+      <h2 className="text-lg font-semibold text-navy">No payment link yet</h2>
       <p className="mt-1 text-sm text-navy/60">
-        In the seller app, tap <b>New order</b>, draft from a chat and create a link. It opens here.
+        In the seller app, tap <b>New order</b>, draft from a chat and create a payment link. It
+        opens here.
       </p>
       <Btn className="mt-5" onClick={() => actions.setView("seller")}>
         Go to seller app
@@ -77,11 +77,10 @@ function NoLink() {
 }
 
 function BuyerHeader({ order }: { order: Order }) {
-  const showCount = useStore((s) => s.settings.showOrderCount);
-  const orders = useStore((s) => s.orders);
+  const showRecord = useStore((s) => s.settings.showTrackRecord);
   return (
     <div className="bg-white px-4 pb-4 pt-3">
-      <p className="text-[11px] text-navy/45">{linkUrl(order)}</p>
+      <p className="text-[11px] text-navy/45">Chat Checkout · {linkUrl(order)}</p>
       <div className="mt-2 flex items-center gap-3">
         <div className="flex h-11 w-11 items-center justify-center rounded-full bg-navy text-base font-bold text-white">
           MH
@@ -91,11 +90,7 @@ function BuyerHeader({ order }: { order: Order }) {
           <p className="text-xs text-navy/55">{SELLER.city}</p>
         </div>
       </div>
-      {showCount && (
-        <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-[#027a48]">
-          <span>✓</span> {trustBadgeCount(orders)} orders completed via Razorpay
-        </p>
-      )}
+      {showRecord && <TrackRecordBadge />}
     </div>
   );
 }
@@ -149,58 +144,37 @@ function OrderStep({ order }: { order: Order }) {
   );
 }
 
+/**
+ * Address step. Checks are simple rules only: every field filled, a valid pincode, and a pincode
+ * that matches the city. A mismatch is a gentle flag; it never blocks the buyer.
+ */
 function AddressStep({ order }: { order: Order }) {
   const buyer = useStore((s) => s.buyer!);
-  const useLive = useStore((s) => s.settings.useLiveAi);
-  const [cleaning, setCleaning] = useState(false);
   const [pinTouched, setPinTouched] = useState(false);
-  const fromLastOrder = order.addressSource === "last_order" && buyer.address === order.address;
-
-  async function cleanup(address: string) {
-    if (!address.trim() || address.trim().length < 12) return;
-    const current = getState().buyer;
-    if (current?.suggestion?.forAddress === address) return;
-    setCleaning(true);
-    const res = await withTimeout(
-      cleanAddressFn({ data: { address, useLive } }),
-      AI_TIMEOUT_MS,
-      () => ({
-        source: "fallback" as const,
-        result: fallbackCleanAddress(address),
-      }),
-    );
-    setCleaning(false);
-    // Ignore if the buyer kept typing meanwhile.
-    if (getState().buyer?.address !== address) return;
-    const same = res.result.clean_address.trim().toLowerCase() === address.trim().toLowerCase();
-    actions.updateBuyer({
-      suggestion: { ...res.result, source: res.source, forAddress: address },
-      suggestionHandled: same,
-    });
-  }
+  const usingSaved =
+    (!!buyer.savedAddress && buyer.savedAddress === buyer.address) ||
+    (order.addressSource === "last_order" && order.address === buyer.address);
 
   function setPincode(pincode: string) {
     const check = checkPincode(pincode);
     const current = getState().buyer;
-    // A city the buyer typed by hand is never replaced; the mismatch warning flags it instead.
+    // A city the buyer typed by hand is never replaced; the mismatch flag shows instead.
     const keepCity = current?.cityEdited ? { city: current.city } : null;
     if (check.status === "invalid" || check.status === "empty") {
       // An invalid pincode can't vouch for a city or state.
       actions.updateBuyer({ pincode, city: "", state: "", ...keepCity });
       return;
     }
-    // Auto-fill city and state from the pincode. If the lookup has no city, use the one in the
-    // (cleaned) address; the buyer can still edit it.
-    const address = current?.address ?? "";
+    // Fill city and state from the pincode. If the lookup has no city, use the one named in the address.
     actions.updateBuyer({
       pincode,
-      city: check.city || cityFromAddress(address) || current?.city || "",
+      city: check.city || cityFromAddress(current?.address ?? "") || current?.city || "",
       state: check.state,
       ...keepCity,
     });
   }
 
-  /** Pincode lookup had no city: take a known city named in the address (Keep mine / edits). */
+  /** Pincode lookup had no city: take a known city named in the address text. */
   function fillCityFromAddress(address: string) {
     const b = getState().buyer;
     const check = checkPincode(b?.pincode ?? "");
@@ -210,12 +184,30 @@ function AddressStep({ order }: { order: Order }) {
     if (city) actions.updateBuyer({ city });
   }
 
+  /** A phone number used before brings back its saved address, unless the buyer typed their own. */
+  function prefillFromPhone(phone: string) {
+    const s = getState();
+    const b = s.buyer;
+    if (!b || b.addressEdited) return;
+    const last = lastAddressFor(
+      phone,
+      s.orders.filter((o) => o.id !== b.orderId),
+    );
+    if (!last?.address) return;
+    if (b.address === last.address) {
+      if (!b.savedAddress) actions.updateBuyer({ savedAddress: last.address });
+      return;
+    }
+    const replaceable = !b.address.trim() || b.savedAddress === b.address;
+    if (!replaceable) return;
+    actions.updateBuyer({ address: last.address, savedAddress: last.address, cityEdited: false });
+    setPincode(last.pincode ?? "");
+  }
+
   useEffect(() => {
+    prefillFromPhone(buyer.phone);
     // Prefilled pincode (from the chat or the last order): fill city/state straight away.
-    if (buyer.pincode && !buyer.city) setPincode(buyer.pincode);
-    // Address came prefilled from the chat – offer the tidy-up straight away.
-    // A saved address from the last order is already clean, so skip it.
-    if (buyer.address && !buyer.suggestion && !fromLastOrder) void cleanup(buyer.address);
+    if (getState().buyer?.pincode && !getState().buyer?.city) setPincode(getState().buyer!.pincode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -232,24 +224,14 @@ function AddressStep({ order }: { order: Order }) {
         ? addressCity
         : "";
   const showPinError = pin.status === "invalid" && (pinTouched || buyer.pincode.length >= 6);
-  const canContinue =
-    buyer.name.trim() &&
-    buyer.phone.replace(/[^0-9x]/gi, "").length >= 10 &&
-    buyer.address.trim().length >= 10 &&
-    pin.status === "ok" &&
-    buyer.city.trim();
-  const s = buyer.suggestion;
-  const showSuggestion = s && !buyer.suggestionHandled && s.forAddress === buyer.address;
 
-  function continueToPayment() {
-    actions.saveBuyerDetails();
-    // The risk check runs here, so the payment screen only shows options that will work.
-    actions.updateBuyer({ step: "checking" });
-    setTimeout(() => {
-      actions.runRiskCheck();
-      actions.updateBuyer({ step: "payment" });
-    }, CHECKING_MS);
-  }
+  const missing = [
+    !buyer.name.trim() && "name",
+    buyer.phone.replace(/[^0-9x]/gi, "").length < 10 && "phone",
+    buyer.address.trim().length < 10 && "address",
+    pin.status !== "ok" && "a valid, serviceable pincode",
+    !buyer.city.trim() && "city",
+  ].filter(Boolean) as string[];
 
   return (
     <>
@@ -269,7 +251,10 @@ function AddressStep({ order }: { order: Order }) {
             className={inputCls}
             inputMode="tel"
             value={buyer.phone}
-            onChange={(e) => actions.updateBuyer({ phone: e.target.value })}
+            onChange={(e) => {
+              actions.updateBuyer({ phone: e.target.value });
+              prefillFromPhone(e.target.value);
+            }}
           />
         </Field>
         <Field label="Address">
@@ -278,64 +263,25 @@ function AddressStep({ order }: { order: Order }) {
             className={cn(inputCls, "resize-none")}
             value={buyer.address}
             onChange={(e) => {
-              actions.updateBuyer({ address: e.target.value, suggestionHandled: false });
+              actions.updateBuyer({
+                address: e.target.value,
+                addressEdited: true,
+                savedAddress: undefined,
+              });
               fillCityFromAddress(e.target.value);
             }}
-            onBlur={(e) => void cleanup(e.target.value)}
           />
         </Field>
-        {fromLastOrder && (
+        {usingSaved && (
           <p className="-mt-1 text-xs font-medium text-rzp-dark">
-            ↺ Using address from the last order
+            ↺ Using your saved address from the last order
           </p>
-        )}
-        {cleaning && (
-          <p className="flex items-center gap-2 text-xs text-navy/55">
-            <Spinner className="h-3.5 w-3.5" /> Tidying the address…
-          </p>
-        )}
-        {showSuggestion && (
-          <div className="rounded-xl border border-rzp/30 bg-rzp/6 p-3">
-            <p className="text-xs font-semibold text-rzp-dark">Did you mean:</p>
-            <p className="mt-0.5 text-sm font-medium text-navy">{s.clean_address}</p>
-            {s.missing.length > 0 && (
-              <p className="mt-1 text-[11px] text-navy/55">
-                Not found: {s.missing.join(", ").toLowerCase()}
-              </p>
-            )}
-            <div className="mt-2 flex gap-2">
-              <Btn
-                size="sm"
-                onClick={() => {
-                  const pinFromClean = s.clean_address.match(/\b[1-8]\d{5}\b/)?.[0];
-                  actions.updateBuyer({
-                    address: s.clean_address,
-                    suggestionHandled: true,
-                    suggestion: { ...s, forAddress: s.clean_address },
-                  });
-                  if (pinFromClean) setPincode(pinFromClean);
-                }}
-              >
-                Accept
-              </Btn>
-              <Btn
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  actions.updateBuyer({ suggestionHandled: true });
-                  fillCityFromAddress(buyer.address);
-                }}
-              >
-                Keep mine
-              </Btn>
-            </div>
-          </div>
         )}
         <Field
           label="Pincode"
           hint={
             showPinError ? (
-              <p className="mt-1 text-xs font-medium text-risk">
+              <p className="mt-1 text-xs font-medium text-danger">
                 {pin.status === "invalid" && pin.error}
               </p>
             ) : pin.status === "ok" ? (
@@ -343,12 +289,12 @@ function AddressStep({ order }: { order: Order }) {
                 ✓ Delivery available, 3–5 days
               </p>
             ) : pin.status === "unserviceable" ? (
-              <p className="mt-1 text-xs font-medium text-risk">✕ Not serviceable</p>
+              <p className="mt-1 text-xs font-medium text-danger">✕ Not serviceable</p>
             ) : null
           }
         >
           <input
-            className={cn(inputCls, showPinError && "border-risk")}
+            className={cn(inputCls, showPinError && "border-danger")}
             inputMode="numeric"
             maxLength={6}
             value={buyer.pincode}
@@ -366,7 +312,7 @@ function AddressStep({ order }: { order: Order }) {
             label="City"
             hint={
               pin.status === "ok" && !buyer.city.trim() ? (
-                <p className="mt-1 text-xs font-medium text-risk">Enter your city</p>
+                <p className="mt-1 text-xs font-medium text-danger">Enter your city</p>
               ) : null
             }
           >
@@ -395,9 +341,22 @@ function AddressStep({ order }: { order: Order }) {
       <p className="px-1 text-[11px] leading-relaxed text-navy/50">
         🔒 Your address is shared with {SELLER.name} and the courier only to deliver this order.
       </p>
-      <Btn size="lg" className="w-full" disabled={!canContinue} onClick={continueToPayment}>
+      <Btn
+        size="lg"
+        className="w-full"
+        disabled={missing.length > 0}
+        onClick={() => {
+          actions.saveBuyerDetails();
+          actions.updateBuyer({ step: "payment" });
+        }}
+      >
         Continue to payment
       </Btn>
+      {missing.length > 0 && (
+        <p className="-mt-2 text-center text-[11px] text-navy/45">
+          Still needed: {missing.join(", ")}
+        </p>
+      )}
       <BackLink to="order" />
     </>
   );
@@ -418,100 +377,73 @@ function Checking() {
   return (
     <div className="flex flex-col items-center py-20 text-center">
       <Spinner className="h-8 w-8 text-rzp" />
-      <p className="mt-4 text-base font-semibold text-navy">Checking order…</p>
+      <p className="mt-4 text-base font-semibold text-navy">Checking COD for this order…</p>
       <p className="mt-1 text-xs text-navy/50">This takes a second</p>
     </div>
   );
 }
 
-/** Only the options the risk check allows – COD is never shown and then refused. */
+/** The prepaid offer and the COD fee, side by side. COD is checked once the buyer picks it. */
 function PaymentStep({ order }: { order: Order }) {
   const settings = useStore((s) => s.settings);
-  const risk = useStore((s) => s.buyer?.risk);
+  const orders = useStore((s) => s.orders);
+  const trusted = useStore((s) => s.trusted);
+  const blocked = useStore((s) => s.blocked);
   const p = buyerPrices(order.lines, order.discount, settings);
-  if (!risk) return null;
+  const check = codCheckFor({ orders, trusted, blocked }, order);
+  // The seller offered online payment only, so COD isn't shown at all.
+  const codHidden = check.reason === "seller";
 
-  const payNow = (
-    <button
-      onClick={() =>
-        actions.updateBuyer({
-          step: "checkout",
-          checkout: { amount: p.prepaidTotal, purpose: "prepaid" },
-        })
-      }
-      className="relative flex flex-col rounded-2xl border-2 border-rzp bg-white p-3 text-left shadow-sm"
-    >
-      {risk.action !== "prepaid_only" && (
-        <span className="absolute -top-2.5 left-3 rounded-full bg-rzp px-2 py-0.5 text-[10px] font-semibold text-white">
-          Recommended
-        </span>
-      )}
-      <span className="mt-1 text-sm font-semibold text-navy">Pay now</span>
-      <span className="text-xs text-[#027a48]">
-        {p.prepaidShipping === 0 ? "Free shipping" : `Shipping ${formatINR(p.prepaidShipping)}`}
-      </span>
-      <span className="mt-3 text-xl font-bold text-navy">{formatINR(p.prepaidTotal)}</span>
-      <span className="text-[11px] text-navy/50">UPI, card or netbanking</span>
-    </button>
-  );
+  function pickCod() {
+    actions.updateBuyer({ step: "checking" });
+    setTimeout(() => actions.updateBuyer({ step: "cod_outcome" }), CHECKING_MS);
+  }
 
   return (
     <>
       <p className="px-1 text-sm font-semibold text-navy">How would you like to pay?</p>
-
-      {risk.action === "prepaid_only" ? (
-        <>
-          {payNow}
-          <p className="px-1 text-xs text-navy/60">{buyerPrepaidReason(risk)}</p>
-        </>
-      ) : (
-        <div className="grid grid-cols-2 gap-3">
-          {payNow}
-          {risk.action === "cod_allowed" ? (
-            <button
-              onClick={() => {
-                actions.confirmCod(order.id);
-                actions.updateBuyer({ step: "done" });
-                void fetchVerdict(order.id, "cod");
-              }}
-              className="flex flex-col rounded-2xl border-2 border-navy/12 bg-white p-3 text-left"
-            >
-              <span className="mt-1 text-sm font-semibold text-navy">Cash on delivery</span>
-              <span className="text-xs text-navy/60">+{formatINR(p.codFee)} fee</span>
-              <span className="mt-3 text-xl font-bold text-navy">{formatINR(p.codTotal)}</span>
-              <span className="text-[11px] text-navy/50">
-                incl. {formatINR(p.codShipping)} shipping + {formatINR(p.codFee)} fee
-              </span>
-            </button>
-          ) : (
-            <button
-              onClick={() =>
-                actions.updateBuyer({
-                  step: "checkout",
-                  checkout: { amount: risk.upfrontAmount ?? 0, purpose: "partial" },
-                })
-              }
-              className="flex flex-col rounded-2xl border-2 border-navy/12 bg-white p-3 text-left"
-            >
-              <span className="mt-1 text-sm font-semibold text-navy">
-                Pay {formatINR(risk.upfrontAmount ?? 0)} now, rest on delivery
-              </span>
-              <span className="mt-3 text-xl font-bold text-navy">
-                {formatINR(risk.upfrontAmount ?? 0)}
-              </span>
-              <span className="text-[11px] text-navy/50">
-                + {formatINR(p.codTotal - (risk.upfrontAmount ?? 0))} on delivery (incl.{" "}
-                {formatINR(p.codShipping)} shipping + {formatINR(p.codFee)} COD fee)
-              </span>
-            </button>
+      <div className={cn("grid gap-3", codHidden ? "grid-cols-1" : "grid-cols-2")}>
+        <button
+          onClick={() =>
+            actions.updateBuyer({
+              step: "checkout",
+              checkout: { amount: p.prepaidTotal, purpose: "prepaid" },
+            })
+          }
+          className="relative flex flex-col rounded-2xl border-2 border-rzp bg-white p-3 text-left shadow-sm"
+        >
+          {!codHidden && (
+            <span className="absolute -top-2.5 left-3 rounded-full bg-rzp px-2 py-0.5 text-[10px] font-semibold text-white">
+              Recommended
+            </span>
           )}
-        </div>
-      )}
-      {risk.action === "partial_upfront" && (
+          <span className="mt-1 text-sm font-semibold text-navy">Pay now</span>
+          <span className="text-xs text-[#027a48]">
+            {p.prepaidShipping === 0 ? "Free shipping" : `Shipping ${formatINR(p.prepaidShipping)}`}
+          </span>
+          <span className="mt-3 text-xl font-bold text-navy">{formatINR(p.prepaidTotal)}</span>
+          <span className="text-[11px] text-navy/50">UPI, card or netbanking</span>
+        </button>
+        {!codHidden && (
+          <button
+            onClick={pickCod}
+            className="flex flex-col rounded-2xl border-2 border-navy/12 bg-white p-3 text-left"
+          >
+            <span className="mt-1 text-sm font-semibold text-navy">Cash on delivery</span>
+            <span className="text-xs text-navy/60">+{formatINR(p.codFee)} fee</span>
+            <span className="mt-3 text-xl font-bold text-navy">{formatINR(p.codTotal)}</span>
+            <span className="text-[11px] text-navy/50">
+              incl. {formatINR(p.codShipping)} shipping + {formatINR(p.codFee)} fee
+            </span>
+          </button>
+        )}
+      </div>
+      {codHidden && (
         <p className="px-1 text-xs text-navy/60">
-          {risk.reasons.some((r) => r.code === "new_phone")
-            ? "First order from this number – pay a small part now to confirm COD."
-            : "Pay a small part now to confirm COD."}
+          {prepaidOnlyReason(
+            check,
+            order.lines.some((l) => l.type === "custom"),
+          )}
         </p>
       )}
       <BackLink to="address" />
@@ -519,26 +451,116 @@ function PaymentStep({ order }: { order: Order }) {
   );
 }
 
-/** Ask Claude to phrase the seller-facing verdict; the template stays if it's off or slow. */
-async function fetchVerdict(orderId: string, outcome: RiskOutcome) {
-  const s = getState();
-  const risk = s.orders.find((o) => o.id === orderId)?.risk;
-  if (!risk) return;
-  const res = await withTimeout(
-    explainRiskFn({
-      data: {
-        tier: risk.tier,
-        action: outcomePhrase(risk, outcome, formatINR).replace(/^so /, ""),
-        reasons: risk.reasons.map((r) => r.label),
-        useLive: s.settings.useLiveAi,
-      },
-    }),
-    AI_TIMEOUT_MS,
-    () => ({ source: "fallback" as const, text: null }),
-  );
-  if (res.source === "claude" && res.text) {
-    actions.updateOrder(orderId, { verdict: res.text, verdictSource: "claude" });
+/** What the COD rules decided: COD allowed, a part-payment to confirm COD, or prepaid only. */
+function CodOutcome({ order }: { order: Order }) {
+  const settings = useStore((s) => s.settings);
+  const orders = useStore((s) => s.orders);
+  const trusted = useStore((s) => s.trusted);
+  const blocked = useStore((s) => s.blocked);
+  const p = buyerPrices(order.lines, order.discount, settings);
+  const check = codCheckFor({ orders, trusted, blocked }, order);
+
+  const payInFull = () =>
+    actions.updateBuyer({
+      step: "checkout",
+      checkout: { amount: p.prepaidTotal, purpose: "prepaid" },
+    });
+  const confirmCod = () => {
+    actions.confirmCod(order.id);
+    actions.updateBuyer({ step: "done" });
+  };
+
+  let body;
+  if (check.action === "allowed") {
+    body = (
+      <>
+        <Card className="bg-white text-center">
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-success/12 text-2xl text-success">
+            ✓
+          </div>
+          <p className="text-lg font-semibold text-navy">COD allowed</p>
+          <p className="mt-1 text-sm text-navy/60">
+            Pay {formatINR(p.codTotal)} in cash or UPI when it arrives.
+          </p>
+        </Card>
+        {check.prepayNudge ? (
+          <>
+            <Btn size="lg" className="w-full" onClick={payInFull}>
+              Pay {formatINR(p.prepaidTotal)} now – skip the {formatINR(p.codFee)} COD fee
+            </Btn>
+            <Btn variant="secondary" size="lg" className="w-full" onClick={confirmCod}>
+              Confirm COD
+            </Btn>
+          </>
+        ) : (
+          <Btn size="lg" className="w-full" onClick={confirmCod}>
+            Confirm COD
+          </Btn>
+        )}
+      </>
+    );
+  } else if (check.action === "part_payment") {
+    const x = check.upfrontAmount ?? 0;
+    body = (
+      <>
+        <Card className="bg-white">
+          <p className="text-base font-semibold text-navy">A small part now confirms COD</p>
+          <p className="mt-1 text-sm text-navy/60">
+            {SELLER.name} asks for an advance on this order. The rest is paid on delivery.
+          </p>
+        </Card>
+        <button
+          onClick={() =>
+            actions.updateBuyer({ step: "checkout", checkout: { amount: x, purpose: "partial" } })
+          }
+          className="w-full rounded-2xl border-2 border-rzp bg-white p-4 text-left"
+        >
+          <p className="text-base font-semibold text-navy">
+            Pay {formatINR(x)} now, rest on delivery
+          </p>
+          <p className="mt-0.5 text-xs text-navy/60">
+            {formatINR(p.codTotal - x)} on delivery (includes {formatINR(p.codShipping)} shipping +{" "}
+            {formatINR(p.codFee)} COD fee)
+          </p>
+        </button>
+        <button
+          onClick={payInFull}
+          className="w-full rounded-2xl border-2 border-navy/12 bg-white p-4 text-left"
+        >
+          <p className="text-base font-semibold text-navy">Pay the full amount now</p>
+          <p className="mt-0.5 text-xs text-navy/60">
+            {formatINR(p.prepaidTotal)} total{p.prepaidShipping === 0 ? " · free shipping" : ""}, no
+            COD fee
+          </p>
+        </button>
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <Card className="bg-white">
+          <p className="text-base font-semibold text-navy">Pay now to place this order</p>
+          <p className="mt-1 text-sm text-navy/60">
+            {prepaidOnlyReason(
+              check,
+              order.lines.some((l) => l.type === "custom"),
+            )}
+          </p>
+        </Card>
+        <Btn size="lg" className="w-full" onClick={payInFull}>
+          Pay {formatINR(p.prepaidTotal)} now
+        </Btn>
+      </>
+    );
   }
+
+  return (
+    <>
+      {body}
+      <BackLink to="payment" />
+      <p className="px-1 text-center text-[10px] text-navy/35">{COD_NOTE}</p>
+    </>
+  );
 }
 
 const UPI_APPS = [
@@ -561,7 +583,6 @@ function MockCheckout({ order }: { order: Order }) {
         step: "done",
         paymentId: "pay_" + Math.random().toString(36).slice(2, 12).toUpperCase(),
       });
-      void fetchVerdict(order.id, checkout!.purpose === "partial" ? "partial" : "prepaid");
     }, 1100);
   }
 
@@ -575,7 +596,7 @@ function MockCheckout({ order }: { order: Order }) {
           </div>
           <p className="mt-1 text-2xl font-bold">{formatINR(checkout.amount)}</p>
           <p className="text-[11px] text-white/60">
-            {checkout.purpose === "partial" ? "Upfront part · rest on delivery" : "Full payment"} ·{" "}
+            {checkout.purpose === "partial" ? "Advance · rest on delivery" : "Full payment"} ·{" "}
             {order.id}
           </p>
         </div>
@@ -631,10 +652,7 @@ function Confirmation({ order }: { order: Order }) {
   const isCod = order.paymentMode === "cod" || order.paymentMode === "partial";
   const due = dueOnDelivery(order);
   const paidOnline = order.paymentMode === "prepaid" || order.paymentMode === "partial";
-  const shipped = !!order.shippedAt;
-  const finished = order.status === "delivered" || order.status === "refused";
-  const upcoming = finished ? [] : shipped ? ["Delivered"] : ["Shipped", "Delivered"];
-  const track = trackingUrl(order);
+  const finished = order.status === "delivered" || order.status === "returned";
 
   return (
     <>
@@ -678,20 +696,10 @@ function Confirmation({ order }: { order: Order }) {
         </div>
       </Card>
       <Card className="bg-white">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-navy/50">Tracking</p>
-          {track && (
-            <a
-              href={track}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold text-rzp"
-            >
-              Track on {order.courier} ↗
-            </a>
-          )}
-        </div>
-        <Timeline events={order.timeline} upcoming={upcoming} />
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-navy/50">
+          Order status
+        </p>
+        <Timeline events={order.timeline} upcoming={finished ? [] : ["Delivered"]} />
       </Card>
       <Card className="bg-white">
         <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-navy/50">

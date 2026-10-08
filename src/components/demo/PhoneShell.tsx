@@ -12,8 +12,6 @@ export function PhoneShell() {
   const hasLink = useStore((s) => s.linkOrderId !== null);
 
   useEffect(() => {
-    // Orders left in "Shipped" for 10 days count as delivered.
-    actions.applyAutoDelivery();
     getAiStatus()
       .then((r) => actions.setAiAvailable(r.available))
       .catch(() => actions.setAiAvailable(false));
@@ -59,7 +57,7 @@ export function PhoneShell() {
           </div>
           {view === "seller" && (
             <div className="shrink-0 border-b border-navy/5 px-4 py-1.5 text-[10px] font-semibold tracking-wide text-navy/60">
-              Order Link <span className="font-normal text-navy/40">by Razorpay (concept)</span>
+              Chat Checkout <span className="font-normal text-navy/40">by Razorpay (concept)</span>
             </div>
           )}
           <div className="relative min-h-0 flex-1">
@@ -74,6 +72,7 @@ export function PhoneShell() {
         </div>
         <p className="hidden text-center text-[11px] text-navy/40 sm:block">
           Concept prototype for a product challenge. Not affiliated with or endorsed by Razorpay.
+          Prototype rules. Production would reuse Razorpay Magic Checkout's COD rules.
         </p>
       </div>
     </div>

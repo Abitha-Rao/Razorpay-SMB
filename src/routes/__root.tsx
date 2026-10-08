@@ -78,18 +78,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Razorpay Order Link (concept)" },
+      { title: "Chat Checkout (concept)" },
       {
         name: "description",
         content:
-          "Clickable prototype: AI-drafted order links with smart COD for Instagram and WhatsApp sellers.",
+          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Razorpay Order Link (concept)" },
+      { property: "og:title", content: "Chat Checkout (concept)" },
       {
         property: "og:description",
         content:
-          "Clickable prototype: AI-drafted order links with smart COD for Instagram and WhatsApp sellers.",
+          "Clickable prototype: turn a buyer's chat into a payment link, with simple COD rules, for Instagram and WhatsApp sellers.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

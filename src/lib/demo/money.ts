@@ -45,7 +45,7 @@ export function discountAmount(lines: OrderLine[], discount: Discount): number {
   return Math.min(Math.max(0, Math.round(raw)), Math.max(0, sub - 1));
 }
 
-/** Order value = items after discount. This is what the link shows and what risk rules use. */
+/** Order value = items after discount. This is what the payment link shows. */
 export function orderValue(lines: OrderLine[], discount: Discount): number {
   return subtotal(lines) - discountAmount(lines, discount);
 }
@@ -71,7 +71,7 @@ export function buyerPrices(lines: OrderLine[], discount: Discount, settings: Se
   };
 }
 
-/** Upfront amount for a medium-risk COD: 20% of order value, rounded to ₹10, capped at 50%. */
+/** Advance for a part-payment COD: 20% of the order value, rounded to ₹10, capped at 50%. */
 export function upfrontAmount(value: number): number {
   const twentyPct = Math.round((value * 0.2) / 10) * 10;
   return Math.min(Math.max(twentyPct, 100), Math.floor(value * 0.5));
@@ -89,6 +89,6 @@ export function orderTotal(order: Order): number {
 /** Left to collect in cash on delivery (0 for prepaid or not-yet-chosen orders). */
 export function dueOnDelivery(order: Order): number {
   if (order.paymentMode !== "cod" && order.paymentMode !== "partial") return 0;
-  if (order.status === "delivered" || order.status === "refused") return 0;
+  if (order.status === "delivered" || order.status === "returned") return 0;
   return Math.max(0, orderTotal(order) - order.paidAmount);
 }

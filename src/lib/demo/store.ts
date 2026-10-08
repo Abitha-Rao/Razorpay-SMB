@@ -5,27 +5,29 @@
 import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
+import { codDecision, normalizePhone, samePhone } from "./cod";
 import { isPlaceholderAddress, titleCaseName } from "./fallback";
 import type { MessageKind } from "./messages";
 import { buyerPrices, formatINR, orderTotal, orderValue } from "./money";
-import { normalizePhone, scoreRisk, sellerVerdict } from "./risk";
-import { DEFAULT_SETTINGS, SEED_CATALOG, buildSeedOrders } from "./seed";
-import { AUTO_DELIVER_MS } from "./shipping";
+import {
+  DEFAULT_SETTINGS,
+  FIRST_DEMO_ORDER,
+  SEED_CATALOG,
+  buildSeedOrders,
+  seedLists,
+} from "./seed";
 import type {
-  AddressResult,
   AiSource,
-  BlockedPhone,
+  BuyerRef,
   CatalogItem,
-  Courier,
+  CodCheck,
   Discount,
   Order,
   OrderLine,
-  RiskOutcome,
-  RiskResult,
   Settings,
 } from "./types";
 
-export type SellerTab = "home" | "orders" | "summary" | "settings";
+export type SellerTab = "home" | "orders" | "buyers" | "record" | "settings";
 
 export type DraftState = {
   chat: string;
@@ -42,11 +44,14 @@ export type DraftState = {
   pincode: string;
   /** The chat asked for "same/old address": fill it from this phone's last order. */
   useSavedAddress?: boolean | undefined;
+  /** The seller decides whether COD is offered on this order. */
+  codOffered: boolean;
   paymentHint: "prepaid" | "cod" | "unknown";
   uncertain: string[];
 };
 
-export type BuyerStep = "order" | "address" | "checking" | "payment" | "checkout" | "done";
+export type BuyerStep =
+  "order" | "address" | "payment" | "checking" | "cod_outcome" | "checkout" | "done";
 
 export type BuyerFlow = {
   orderId: string;
@@ -54,20 +59,20 @@ export type BuyerFlow = {
   name: string;
   phone: string;
   address: string;
+  /** The buyer typed or edited the address – don't replace it with a saved one. */
+  addressEdited?: boolean | undefined;
+  /** Set while the address is still the one prefilled from this phone's last order. */
+  savedAddress?: string | undefined;
   pincode: string;
   city: string;
   /** The buyer typed the city themselves – never overwrite it from a lookup. */
   cityEdited?: boolean | undefined;
   state: string;
-  suggestion?: (AddressResult & { source: AiSource; forAddress: string }) | undefined;
-  suggestionHandled: boolean;
-  /** Computed when the buyer taps "Continue to payment"; decides which options they see. */
-  risk?: RiskResult | undefined;
   checkout?: { amount: number; purpose: "prepaid" | "partial" } | undefined;
   paymentId?: string | undefined;
 };
 
-export type Sheet = { kind: MessageKind | "ship"; orderId: string };
+export type Sheet = { kind: MessageKind; orderId: string };
 
 export type State = {
   view: "seller" | "buyer";
@@ -77,13 +82,15 @@ export type State = {
   catalog: CatalogItem[];
   orders: Order[];
   draft: DraftState;
-  /** The one bottom sheet open in the seller app (share/copy messages, ship order). */
+  /** The one bottom sheet open in the seller app (share/copy a message to the buyer). */
   sheet: Sheet | null;
   /** The order the buyer link points at (latest link created). */
   linkOrderId: string | null;
   buyer: BuyerFlow | null;
-  /** Phones the seller won't offer COD to (added when a parcel is returned). */
-  codBlocked: BlockedPhone[];
+  /** Buyers the seller always allows COD. */
+  trusted: BuyerRef[];
+  /** Buyers who only get prepaid. */
+  blocked: BuyerRef[];
   linksCreated: number;
   orderSeq: number;
   /** When the seed orders' dates were last anchored to "now". */
@@ -103,12 +110,14 @@ export function emptyDraft(): DraftState {
     addressText: "",
     pincode: "",
     useSavedAddress: false,
+    codOffered: true,
     paymentHint: "unknown",
     uncertain: [],
   };
 }
 
 function initialState(aiAvailable = false): State {
+  const lists = seedLists();
   return {
     view: "seller",
     tab: "home",
@@ -120,9 +129,10 @@ function initialState(aiAvailable = false): State {
     sheet: null,
     linkOrderId: null,
     buyer: null,
-    codBlocked: [],
+    trusted: lists.trusted,
+    blocked: lists.blocked,
     linksCreated: 0,
-    orderSeq: 1064,
+    orderSeq: FIRST_DEMO_ORDER,
     seededAt: Date.now(),
     aiAvailable,
   };
@@ -132,7 +142,7 @@ function initialState(aiAvailable = false): State {
 // The demo survives a page refresh; "Reset demo" clears it. Storage can be unavailable
 // (private mode, blocked site data), so every access is guarded.
 
-const STORAGE_KEY = "order-link-demo-v2";
+const STORAGE_KEY = "chat-checkout-demo-v1";
 
 type Persisted = Pick<
   State,
@@ -144,13 +154,13 @@ type Persisted = Pick<
   | "draft"
   | "linkOrderId"
   | "buyer"
-  | "codBlocked"
+  | "trusted"
+  | "blocked"
   | "linksCreated"
   | "orderSeq"
   | "seededAt"
 >;
 
-const FIRST_DEMO_ORDER = 1064;
 const HOUR_MS = 60 * 60 * 1000;
 
 function isSeedOrder(o: Order): boolean {
@@ -159,8 +169,7 @@ function isSeedOrder(o: Order): boolean {
 
 /**
  * Seed orders are dated relative to when the demo was seeded. When it's reopened days later,
- * shift them forward so the last 4 weeks still hold all 63 – otherwise old seed orders slide
- * out of "this month" and new orders appear not to count.
+ * shift them forward so they still look recent.
  */
 export function rebaseSeed(
   orders: Order[],
@@ -168,22 +177,19 @@ export function rebaseSeed(
 ): { orders: Order[]; seededAt: number } {
   const now = Date.now();
   const seed = orders.filter(isSeedOrder);
-  // Older saves have no seededAt: the newest seed order was created at about seed time.
   const anchor =
     seededAt ?? (seed.length ? Math.max(...seed.map((o) => new Date(o.createdAt).getTime())) : now);
   const delta = now - anchor;
   if (delta < HOUR_MS) return { orders, seededAt: anchor };
-  const shift = (iso: string | undefined) =>
-    iso ? new Date(new Date(iso).getTime() + delta).toISOString() : iso;
+  const shift = (iso: string) => new Date(new Date(iso).getTime() + delta).toISOString();
   return {
     seededAt: now,
     orders: orders.map((o) =>
       isSeedOrder(o)
         ? {
             ...o,
-            createdAt: shift(o.createdAt)!,
-            shippedAt: shift(o.shippedAt),
-            timeline: o.timeline.map((t) => ({ ...t, at: shift(t.at)! })),
+            createdAt: shift(o.createdAt),
+            timeline: o.timeline.map((t) => ({ ...t, at: shift(t.at) })),
           }
         : o,
     ),
@@ -194,7 +200,9 @@ function loadPersisted(): State {
   const fresh = initialState();
   if (typeof window === "undefined") return fresh;
   try {
-    window.localStorage.removeItem("order-link-demo-v1"); // older shape
+    // Older versions of the prototype used other keys and shapes.
+    window.localStorage.removeItem("order-link-demo-v1");
+    window.localStorage.removeItem("order-link-demo-v2");
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return fresh;
     const saved = JSON.parse(raw) as Partial<Persisted>;
@@ -206,13 +214,14 @@ function loadPersisted(): State {
       orders: rebased.orders,
       seededAt: rebased.seededAt,
       settings: { ...fresh.settings, ...saved.settings },
-      codBlocked: saved.codBlocked ?? [],
+      trusted: saved.trusted ?? fresh.trusted,
+      blocked: saved.blocked ?? fresh.blocked,
     };
     // Steps driven by timers can't resume after a reload; step back to where they started.
     if (restored.draft.status === "loading")
       restored.draft = { ...restored.draft, status: "editing" };
     if (restored.buyer?.step === "checking")
-      restored.buyer = { ...restored.buyer, step: "address" };
+      restored.buyer = { ...restored.buyer, step: "payment" };
     return restored;
   } catch {
     return fresh;
@@ -230,7 +239,8 @@ function persist(s: State) {
     draft: s.draft,
     linkOrderId: s.linkOrderId,
     buyer: s.buyer,
-    codBlocked: s.codBlocked,
+    trusted: s.trusted,
+    blocked: s.blocked,
     linksCreated: s.linksCreated,
     orderSeq: s.orderSeq,
     seededAt: s.seededAt,
@@ -286,13 +296,27 @@ function clearToasts() {
 
 /** Most recent past order from this phone that has a full address. */
 export function lastAddressFor(phone: string, orders: Order[]): Order | undefined {
-  const p = normalizePhone(phone);
-  if (!p) return undefined;
+  if (!normalizePhone(phone)) return undefined;
   return orders
-    .filter(
-      (o) => normalizePhone(o.buyerPhone) === p && o.address && !isPlaceholderAddress(o.address),
-    )
+    .filter((o) => samePhone(o.buyerPhone, phone) && o.address && !isPlaceholderAddress(o.address))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+/** What the COD rules say for this order right now. */
+export function codCheckFor(
+  s: Pick<State, "orders" | "trusted" | "blocked">,
+  order: Order,
+): CodCheck {
+  return codDecision({
+    phone: order.buyerPhone,
+    orderValue: orderValue(order.lines, order.discount),
+    codOffered: order.codOffered,
+    override: order.override,
+    trusted: s.trusted,
+    blocked: s.blocked,
+    pastOrders: s.orders,
+    excludeOrderId: order.id,
+  });
 }
 
 function now() {
@@ -305,7 +329,7 @@ export const actions = {
   resetDemo() {
     clearPersisted();
     clearToasts();
-    // Restores Balanced, ₹49 COD fee, free shipping, the seed orders and an empty COD-not-allowed list.
+    // Restores the seed orders, the Trusted and Blocked lists, the ₹49 COD fee and free shipping.
     state = initialState(state.aiAvailable);
     emit();
   },
@@ -402,8 +426,9 @@ export const actions = {
       paidAmount: 0,
       codFee: 0,
       shippingCharged: 0,
+      codOffered: d.codOffered,
       uncertain: d.uncertain,
-      timeline: [{ label: "Link sent", at: now() }],
+      timeline: [{ label: "Link created", at: now() }],
     };
     clearToasts();
     setState({
@@ -421,7 +446,6 @@ export const actions = {
         pincode: order.pincode ?? "",
         city: "",
         state: "",
-        suggestionHandled: false,
       },
     });
     return order;
@@ -450,38 +474,6 @@ export const actions = {
     }));
   },
 
-  /** Score the order from the buyer's details; the payment screen shows only what this allows. */
-  runRiskCheck(): RiskResult | null {
-    const s = state;
-    const b = s.buyer;
-    const order = b && s.orders.find((o) => o.id === b.orderId);
-    if (!b || !order) return null;
-    const risk = scoreRisk({
-      phone: b.phone,
-      address: b.address,
-      pincode: b.pincode,
-      orderValue: orderValue(order.lines, order.discount),
-      lines: order.lines,
-      strictness: s.settings.strictness,
-      pastOrders: s.orders,
-      excludeOrderId: order.id,
-      codBlockedPhones: s.codBlocked.map((c) => c.phone),
-    });
-    actions.updateBuyer({ risk });
-    return risk;
-  },
-
-  /** Store the risk decision and the seller-facing verdict once the buyer has chosen. */
-  recordOutcome(orderId: string, outcome: RiskOutcome) {
-    const risk = state.buyer?.orderId === orderId ? state.buyer.risk : undefined;
-    if (!risk) return;
-    actions.updateOrder(orderId, {
-      risk,
-      verdict: sellerVerdict(risk, outcome, formatINR),
-      verdictSource: "template",
-    });
-  },
-
   /** Online payment succeeded in the mock checkout. */
   completePayment(orderId: string, purpose: "prepaid" | "partial", amount: number) {
     const s = state;
@@ -495,6 +487,7 @@ export const actions = {
         paidAmount: amount,
         codFee: prices.codFee,
         shippingCharged: prices.codShipping,
+        codCheck: codCheckFor(s, order),
       });
       actions.addTimeline(orderId, `Part paid (${formatINR(amount)}), rest on delivery`);
     } else {
@@ -507,7 +500,6 @@ export const actions = {
       });
       actions.addTimeline(orderId, "Paid");
     }
-    actions.recordOutcome(orderId, purpose === "partial" ? "partial" : "prepaid");
   },
 
   confirmCod(orderId: string) {
@@ -521,88 +513,53 @@ export const actions = {
       paidAmount: 0,
       codFee: prices.codFee,
       shippingCharged: prices.codShipping,
+      codCheck: codCheckFor(s, order),
     });
     actions.addTimeline(orderId, "COD confirmed");
-    actions.recordOutcome(orderId, "cod");
   },
 
-  // ---------- shipping & outcomes ----------
+  // ---------- seller decisions ----------
 
-  /** Seller booked the parcel with their own courier. Opens the shipping-update share sheet. */
-  shipOrder(orderId: string, courier: Courier, awb: string) {
-    const tracking = awb.trim();
-    actions.updateOrder(orderId, {
-      status: "shipped",
-      courier,
-      awb: tracking || undefined,
-      shippedAt: now(),
-    });
-    actions.addTimeline(
-      orderId,
-      `Shipped via ${courier}${tracking ? ` · tracking ${tracking}` : ""}`,
-    );
-    setState({ sheet: { kind: "ship_update", orderId } });
+  /** "Allow COD anyway": the seller overrides the COD rules for this one order. */
+  allowCodAnyway(orderId: string) {
+    actions.updateOrder(orderId, { override: true });
+    actions.addTimeline(orderId, "You allowed COD (override)");
   },
 
-  markDelivered(orderId: string, by: "seller" | "auto" | "upi") {
+  /** The seller marks the parcel Delivered by hand. */
+  markDelivered(orderId: string) {
     const order = state.orders.find((o) => o.id === orderId);
-    if (!order || order.status !== "shipped") return;
-    const online = order.paymentMode === "prepaid" || order.paymentMode === "partial";
+    if (!order || !["paid", "cod_confirmed", "partial_paid"].includes(order.status)) return;
     actions.updateOrder(orderId, {
       status: "delivered",
-      deliveredBy: by,
-      paymentVerified: online || by === "upi",
-      // Cash collected at the door (or by UPI) settles the rest of a COD order.
+      // Cash collected on delivery settles the rest of a COD order.
       paidAmount: order.paymentMode === "prepaid" ? order.paidAmount : orderTotal(order),
     });
-    if (by === "upi") actions.addTimeline(orderId, "Paid by UPI at the doorstep");
-    actions.addTimeline(
-      orderId,
-      by === "seller"
-        ? "Delivered (marked by you)"
-        : by === "auto"
-          ? "Delivered (auto-marked 10 days after shipping)"
-          : "Delivered",
-    );
+    actions.addTimeline(orderId, "Delivered");
   },
 
-  /** Parcel came back. The buyer's number goes on the COD-not-allowed list. */
+  /** The seller marks the parcel Returned by hand. */
   markReturned(orderId: string) {
     const order = state.orders.find((o) => o.id === orderId);
-    if (!order || order.status !== "shipped") return;
-    actions.updateOrder(orderId, { status: "refused" });
+    if (!order || !["paid", "cod_confirmed", "partial_paid"].includes(order.status)) return;
+    actions.updateOrder(orderId, { status: "returned" });
     actions.addTimeline(orderId, "Returned to seller");
-    if (order.buyerPhone) actions.blockPhone(order.buyerPhone, order.buyerName);
   },
 
-  /** Any order left in Shipped for 10 days is treated as delivered. */
-  applyAutoDelivery() {
-    const cutoff = Date.now() - AUTO_DELIVER_MS;
-    for (const o of state.orders) {
-      if (o.status === "shipped" && o.shippedAt && new Date(o.shippedAt).getTime() <= cutoff)
-        actions.markDelivered(o.id, "auto");
-    }
-  },
-
-  /** Demo shortcut: pretend 10 days have passed since this order shipped. */
-  simulateTenDays(orderId: string) {
-    actions.updateOrder(orderId, {
-      shippedAt: new Date(Date.now() - AUTO_DELIVER_MS - 60_000).toISOString(),
-    });
-    actions.applyAutoDelivery();
-  },
-
-  blockPhone(phone: string, name: string) {
-    setState((s) =>
-      s.codBlocked.some((c) => normalizePhone(c.phone) === normalizePhone(phone))
-        ? {}
-        : { codBlocked: [...s.codBlocked, { phone, name, at: now() }] },
-    );
-  },
-  unblockPhone(phone: string) {
+  /** Add to Trusted (and take off Blocked). Trusted buyers are always allowed COD. */
+  trustBuyer(phone: string, name: string) {
     setState((s) => ({
-      codBlocked: s.codBlocked.filter((c) => normalizePhone(c.phone) !== normalizePhone(phone)),
+      trusted: s.trusted.some((b) => samePhone(b.phone, phone))
+        ? s.trusted
+        : [...s.trusted, { phone, name, at: now() }],
+      blocked: s.blocked.filter((b) => !samePhone(b.phone, phone)),
     }));
+  },
+  untrustBuyer(phone: string) {
+    setState((s) => ({ trusted: s.trusted.filter((b) => !samePhone(b.phone, phone)) }));
+  },
+  unblockBuyer(phone: string) {
+    setState((s) => ({ blocked: s.blocked.filter((b) => !samePhone(b.phone, phone)) }));
   },
 };
 

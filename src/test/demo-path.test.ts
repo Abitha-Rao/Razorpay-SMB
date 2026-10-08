@@ -1,21 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
+import { codDecision, codSummary, prepaidOnlyReason } from "@/lib/demo/cod";
 import {
-  fallbackCleanAddress,
+  SAMPLES,
   fallbackDraft,
   isPlaceholderAddress,
-  PRESETS,
   titleCaseName,
   wantsSavedAddress,
 } from "@/lib/demo/fallback";
 import { buyerPrices, capDiscount, formatINR, orderValue } from "@/lib/demo/money";
 import { checkPincode, cityFromAddress, knownCityIn } from "@/lib/demo/pincode";
-import { buyerPrepaidReason, scoreRisk, sellerVerdict } from "@/lib/demo/risk";
-import { DEFAULT_SETTINGS, SEED_CATALOG, buildSeedOrders, trustBadgeCount } from "@/lib/demo/seed";
-import { lastAddressFor, rebaseSeed } from "@/lib/demo/store";
-import type { OrderLine } from "@/lib/demo/types";
+import {
+  ANJALI,
+  DEFAULT_SETTINGS,
+  ROHIT,
+  SEED_CATALOG,
+  VIKRAM,
+  buildSeedOrders,
+  seedLists,
+} from "@/lib/demo/seed";
+import { actions, codCheckFor, getState, lastAddressFor, rebaseSeed } from "@/lib/demo/store";
+import { trackRecord } from "@/lib/demo/track";
+import type { Order, OrderLine } from "@/lib/demo/types";
 
 const seed = buildSeedOrders();
+const lists = seedLists();
 
 function linesFrom(chat: string): OrderLine[] {
   return fallbackDraft(chat, SEED_CATALOG).lines.map((l, i) => {
@@ -32,257 +41,255 @@ function linesFrom(chat: string): OrderLine[] {
   });
 }
 
+function decide(phone: string, extra: Partial<Parameters<typeof codDecision>[0]> = {}) {
+  return codDecision({
+    phone,
+    orderValue: 2450,
+    codOffered: true,
+    trusted: lists.trusted,
+    blocked: lists.blocked,
+    pastOrders: seed,
+    ...extra,
+  });
+}
+
 describe("seed data", () => {
-  it("has 63 orders so the demo order is the 64th this month", () => {
-    expect(seed).toHaveLength(63);
+  it("is one seller with 12 orders", () => {
+    expect(seed).toHaveLength(12);
   });
-  it("has 4 refused COD orders, Anjali with 3 delivered, one flagged number", () => {
-    expect(seed.filter((o) => o.status === "refused")).toHaveLength(4);
-    const anjali = seed.filter((o) => o.buyerName === "Anjali Verma");
-    expect(anjali.filter((o) => o.status === "delivered")).toHaveLength(3);
-    expect(
-      seed.filter((o) => o.buyerPhone === "98111 22233" && o.status === "refused"),
-    ).toHaveLength(1);
+  it("has one returned order, one trusted buyer and one blocked buyer", () => {
+    expect(seed.filter((o) => o.status === "returned")).toHaveLength(1);
+    expect(seed.find((o) => o.status === "returned")?.buyerPhone).toBe(ROHIT.phone);
+    expect(lists.trusted.map((b) => b.phone)).toEqual([ANJALI.phone]);
+    expect(lists.blocked.map((b) => b.phone)).toEqual([VIKRAM.phone]);
   });
-  it("is roughly a third prepaid", () => {
-    const decided = seed.filter((o) => o.paymentMode !== "pending");
-    const share = decided.filter((o) => o.paymentMode === "prepaid").length / decided.length;
-    expect(share).toBeGreaterThan(0.3);
-    expect(share).toBeLessThan(0.45);
+  it("starts with 5 paid & delivered orders and a 13% return rate", () => {
+    const r = trackRecord(seed);
+    expect(r.paidDelivered).toBe(5);
+    expect(r.delivered).toBe(7);
+    expect(r.returned).toBe(1);
+    expect(r.returnRatePct).toBe(13);
+  });
+  it("re-anchors dates when reopened days later", () => {
+    const old = buildSeedOrders(Date.now() - 4 * 24 * 60 * 60 * 1000);
+    const { orders } = rebaseSeed(old, undefined);
+    const newest = Math.max(...orders.map((o) => new Date(o.createdAt).getTime()));
+    expect(Date.now() - newest).toBeLessThan(60 * 60 * 1000);
   });
 });
 
-describe("demo path: preset b (new COD buyer)", () => {
-  const chat = PRESETS[1]!.chat;
-  const draft = fallbackDraft(chat, SEED_CATALOG);
-  const lines = linesFrom(chat);
+describe("sample chats", () => {
+  it("has a sample for each COD rule", () => {
+    expect(SAMPLES.map((s) => s.key)).toEqual(["new", "returned", "blocked", "trusted"]);
+  });
 
-  it("drafts one green bandhani saree for Priya at ₹2,450", () => {
-    expect(draft.buyer_name).toBe("Priya");
-    expect(draft.payment_hint).toBe("cod");
+  it("the new-buyer sample drafts Priya's saree for ₹2,450", () => {
+    const d = fallbackDraft(SAMPLES[0]!.chat, SEED_CATALOG);
+    expect(d.buyer_name).toBe("Priya");
+    expect(d.buyer_phone).toBe("9811204521");
+    expect(d.payment_hint).toBe("cod");
+    expect(d.pincode).toBe("110085");
+    const lines = linesFrom(SAMPLES[0]!.chat);
     expect(orderValue(lines, null)).toBe(2450);
     expect(buyerPrices(lines, null, DEFAULT_SETTINGS).prepaidTotal).toBe(2450);
   });
 
-  it("cleans the address to the expected suggestion", () => {
-    expect(fallbackCleanAddress(draft.address_text!).clean_address).toBe(
-      "Flat 12, B Block, Near Hanuman Mandir, Sector 4, Rohini, Delhi 110085",
-    );
+  it("the trusted sample asks for the old address, which is looked up from her last order", () => {
+    expect(wantsSavedAddress(SAMPLES[3]!.chat)).toBe(true);
+    expect(isPlaceholderAddress("my old address")).toBe(true);
+    const last = lastAddressFor(ANJALI.phone, seed);
+    expect(last?.address).toBe(ANJALI.address);
+    expect(last?.pincode).toBe(ANJALI.pincode);
   });
 
-  it("scores medium in Balanced and asks for ₹490 upfront", () => {
-    const risk = scoreRisk({
-      phone: draft.buyer_phone!,
-      address: "Flat 12, B Block, Near Hanuman Mandir, Sector 4, Rohini, Delhi 110085",
-      pincode: "110085",
-      orderValue: 2450,
-      lines,
-      strictness: "balanced",
-      pastOrders: seed,
-    });
-    expect(risk.score).toBe(45);
-    expect(risk.tier).toBe("medium");
-    expect(risk.upfrontAmount).toBe(490);
-    expect(risk.action).toBe("partial_upfront");
-    expect(sellerVerdict(risk, "partial", formatINR)).toBe(
-      "New number and the address had no street, so we asked for ₹490 upfront.",
-    );
-  });
-});
-
-describe("other presets", () => {
-  it("regular buyer Anjali is low risk", () => {
-    const lines = linesFrom(PRESETS[0]!.chat);
-    const risk = scoreRisk({
-      phone: "98290 11223",
-      address: "C-14, Shanti Nagar, Durgapura, Jaipur",
-      pincode: "302018",
-      orderValue: orderValue(lines, null),
-      lines,
-      strictness: "balanced",
-      pastOrders: seed,
-    });
-    expect(orderValue(lines, null)).toBe(2400);
-    expect(risk.tier).toBe("low");
-  });
-
-  it("custom order is prepaid only in Balanced", () => {
-    const lines: OrderLine[] = [
-      { id: "1", type: "custom", name: "Lehenga", qty: 1, unitPrice: 4500, weightKg: 1.2 },
-    ];
-    const risk = scoreRisk({
-      phone: "90000 00000",
-      address: "House 4, MG Road, Jaipur",
-      pincode: "302001",
-      orderValue: 4500,
-      lines,
-      strictness: "balanced",
-      pastOrders: seed,
-    });
-    expect(risk.action).toBe("prepaid_only");
-  });
-
-  it("past refusal number gets flagged", () => {
-    const lines = linesFrom(PRESETS[1]!.chat);
-    const risk = scoreRisk({
-      phone: "98111 22233",
-      address: "House 7, Gali 3, Aliganj, Lucknow",
-      pincode: "226024",
-      orderValue: 2450,
-      lines,
-      strictness: "balanced",
-      pastOrders: seed,
-    });
-    expect(risk.reasons.map((r) => r.code)).toContain("past_refusal");
-  });
-});
-
-describe("fallback parser on a free-form chat", () => {
-  it("reads per-item quantities, % discount, name, phone and UPI", () => {
+  it("reads a free-form chat: per-item quantities, % discount, name, phone, UPI", () => {
     const d = fallbackDraft(
       "hi! 2 jhumkas and 1 dupatta for my sister, regular customer so some discount na? 10% off ok. name Kavya, 9876501234, will pay upi",
       SEED_CATALOG,
     );
-    const qty = Object.fromEntries(d.lines.map((l) => [l.catalog_id, l.qty]));
-    expect(qty).toEqual({ "jhumka-silver": 2, "dupatta-blockprint": 1 });
+    expect(Object.fromEntries(d.lines.map((l) => [l.catalog_id, l.qty]))).toEqual({
+      "jhumka-silver": 2,
+      "dupatta-blockprint": 1,
+    });
     expect(d.discount).toEqual({ type: "percent", value: 10 });
     expect(d.buyer_name).toBe("Kavya");
     expect(d.buyer_phone).toBe("9876501234");
     expect(d.payment_hint).toBe("prepaid");
+    expect(titleCaseName("priya")).toBe("Priya");
   });
 });
 
-describe("test 1: free-form COD chat in Balanced", () => {
-  const chat =
-    "hi, the green bandhani saree pls, cod. send to flat 12 b block near hanuman mandir sector 4 rohini delhi 110085. priya 9811204521";
-  const d = fallbackDraft(chat, SEED_CATALOG);
-
-  it("drafts the saree, Priya, her phone, the address and COD", () => {
-    expect(d.lines.map((l) => [l.catalog_id, l.qty])).toEqual([["saree-bandhani-green", 1]]);
-    expect(titleCaseName(d.buyer_name!)).toBe("Priya");
-    expect(d.buyer_phone).toBe("9811204521");
-    expect(d.address_text).toBe("flat 12 b block near hanuman mandir sector 4 rohini delhi 110085");
-    expect(d.pincode).toBe("110085");
-    expect(d.payment_hint).toBe("cod");
+describe("COD rules, in order", () => {
+  it("a new buyer is allowed COD, with a nudge to pay now", () => {
+    const c = decide("9811204521");
+    expect(c).toMatchObject({ action: "allowed", reason: "default", prepayNudge: true });
   });
 
-  it("is medium risk with ₹490 upfront", () => {
-    const lines = linesFrom(chat);
-    const risk = scoreRisk({
-      phone: d.buyer_phone!,
-      address: fallbackCleanAddress(d.address_text!).clean_address,
-      pincode: "110085",
-      orderValue: orderValue(lines, null),
-      lines,
-      strictness: "balanced",
-      pastOrders: seed,
+  it("a trusted buyer is allowed COD with no nudge", () => {
+    expect(decide(ANJALI.phone)).toMatchObject({
+      action: "allowed",
+      reason: "trusted",
+      prepayNudge: false,
     });
-    expect(risk.tier).toBe("medium");
-    expect(risk.upfrontAmount).toBe(490);
+  });
+
+  it("a blocked buyer gets prepaid only", () => {
+    const c = decide(VIKRAM.phone);
+    expect(c).toMatchObject({ action: "prepaid_only", reason: "blocked" });
+    expect(prepaidOnlyReason(c, false)).toBe("COD isn't available for this order.");
+  });
+
+  it("a buyer with a returned parcel is asked for a part-payment", () => {
+    const c = decide(ROHIT.phone);
+    expect(c).toMatchObject({ action: "part_payment", reason: "returned", upfrontAmount: 490 });
+    expect(codSummary(c, formatINR)).toBe(
+      "Part-payment of ₹490 to confirm COD · An earlier parcel was returned",
+    );
+  });
+
+  it("trusted is checked before the other rules", () => {
+    const c = decide(ROHIT.phone, {
+      trusted: [...lists.trusted, { phone: ROHIT.phone, name: ROHIT.name, at: "" }],
+    });
+    expect(c).toMatchObject({ action: "allowed", reason: "trusted" });
+  });
+
+  it("the seller can override a blocked or part-payment order", () => {
+    expect(decide(VIKRAM.phone, { override: true })).toMatchObject({
+      action: "allowed",
+      reason: "override",
+    });
+    expect(decide(ROHIT.phone, { override: true }).action).toBe("allowed");
+  });
+
+  it("the seller's choice of 'pay now only' comes first", () => {
+    const c = decide(ANJALI.phone, { codOffered: false });
+    expect(c).toMatchObject({ action: "prepaid_only", reason: "seller" });
+    expect(prepaidOnlyReason(c, true)).toBe(
+      "This order has a custom item, so the seller needs payment upfront.",
+    );
+    expect(prepaidOnlyReason(c, false)).toBe(
+      "The seller accepts online payment only for this order.",
+    );
   });
 });
 
-describe("test 2: regular buyer uses the saved address", () => {
-  it("detects 'old address' and finds Anjali's last address", () => {
-    expect(wantsSavedAddress(PRESETS[0]!.chat)).toBe(true);
-    expect(isPlaceholderAddress("my old address")).toBe(true);
-    expect(isPlaceholderAddress("Flat 12, old address road 110085")).toBe(false);
-    const last = lastAddressFor("98290 11223", seed);
-    expect(last?.address).toBe("C-14, Shanti Nagar, Durgapura, Jaipur");
-    expect(last?.pincode).toBe("302018");
+describe("full path in the store", () => {
+  beforeEach(() => actions.resetDemo());
+
+  function newOrder(phone: string, name: string) {
+    actions.openNewOrder();
+    actions.updateDraft({
+      status: "drafted",
+      lines: linesFrom(SAMPLES[0]!.chat),
+      buyerName: name,
+      buyerPhone: phone,
+      addressText: "flat 12 b block near hanuman mandir sector 4 rohini delhi 110085",
+      pincode: "110085",
+    });
+    return actions.createLink();
+  }
+
+  const find = (id: string): Order => getState().orders.find((o) => o.id === id)!;
+
+  it("paste, confirm, share, buyer pays, seller marks delivered: the track record grows", () => {
+    const before = trackRecord(getState().orders).paidDelivered;
+    const order = newOrder("9811204521", "Priya");
+    expect(order.id).toBe("ORD-1013");
+    expect(getState().sheet?.kind).toBe("link");
+
+    actions.completePayment(order.id, "prepaid", 2450);
+    expect(find(order.id).status).toBe("paid");
+    actions.markDelivered(order.id);
+    expect(find(order.id).status).toBe("delivered");
+    expect(trackRecord(getState().orders).paidDelivered).toBe(before + 1);
+  });
+
+  it("a cash COD delivery doesn't count towards paid & delivered", () => {
+    const before = trackRecord(getState().orders).paidDelivered;
+    const order = newOrder("9811204521", "Priya");
+    actions.confirmCod(order.id);
+    actions.markDelivered(order.id);
+    expect(trackRecord(getState().orders).paidDelivered).toBe(before);
+  });
+
+  it("a returned order is counted in the return rate and gives that phone a part-payment next time", () => {
+    const order = newOrder("9811204521", "Priya");
+    actions.completePayment(order.id, "prepaid", 2450);
+    actions.markReturned(order.id);
+    expect(find(order.id).status).toBe("returned");
+    expect(trackRecord(getState().orders).returned).toBe(2);
+
+    const next = newOrder("9811204521", "Priya");
+    expect(codCheckFor(getState(), find(next.id))).toMatchObject({
+      action: "part_payment",
+      reason: "returned",
+    });
+  });
+
+  it("Allow COD anyway flips a blocked order and flags it", () => {
+    const order = newOrder(VIKRAM.phone, "Vikram");
+    expect(codCheckFor(getState(), find(order.id)).action).toBe("prepaid_only");
+    actions.allowCodAnyway(order.id);
+    expect(find(order.id).override).toBe(true);
+    expect(codCheckFor(getState(), find(order.id))).toMatchObject({ reason: "override" });
+    actions.confirmCod(order.id);
+    expect(find(order.id)).toMatchObject({ status: "cod_confirmed", override: true });
+  });
+
+  it("Trusted and Blocked lists move buyers between them", () => {
+    actions.trustBuyer(VIKRAM.phone, VIKRAM.name);
+    expect(getState().trusted.map((b) => b.phone)).toContain(VIKRAM.phone);
+    expect(getState().blocked.map((b) => b.phone)).not.toContain(VIKRAM.phone);
+    actions.untrustBuyer(VIKRAM.phone);
+    expect(getState().trusted.map((b) => b.phone)).not.toContain(VIKRAM.phone);
+  });
+
+  it("Reset demo restores the seed, the lists and the settings", () => {
+    newOrder("9811204521", "Priya");
+    actions.updateSettings({ codFee: 99 });
+    actions.trustBuyer("90000 00000", "Test");
+    actions.resetDemo();
+    const s = getState();
+    expect(s.orders).toHaveLength(12);
+    expect(s.settings.codFee).toBe(49);
+    expect(s.settings.prepaidOffer).toBe("free_shipping");
+    expect(s.trusted.map((b) => b.phone)).toEqual([ANJALI.phone]);
+    expect(s.blocked.map((b) => b.phone)).toEqual([VIKRAM.phone]);
   });
 });
 
-describe("test 3: discount caps", () => {
+describe("amounts and address checks", () => {
   const lines: OrderLine[] = [
     { id: "1", type: "catalog", name: "Saree", qty: 1, unitPrice: 2450, weightKg: 0.6 },
   ];
-  it("caps 150% at 90%", () => {
-    const c = capDiscount(lines, { type: "percent", value: 150 });
-    expect(c.discount).toEqual({ type: "percent", value: 90 });
-    expect(c.warning).toMatch(/90%/);
-  });
-  it("caps a ₹ discount at 90% of the subtotal too", () => {
-    const c = capDiscount(lines, { type: "flat", value: 5000 });
-    expect(c.discount).toEqual({ type: "flat", value: 2205 });
-    expect(c.warning).toMatch(/90% of subtotal/);
-    expect(orderValue(lines, c.discount)).toBe(245);
-  });
-});
 
-describe("test 4: a returned parcel makes the number prepaid only", () => {
-  it("blocks COD for a number on the list, with the buyer-facing reason", () => {
-    const lines = linesFrom(PRESETS[0]!.chat);
-    const risk = scoreRisk({
-      phone: "98290 11223",
-      address: "C-14, Shanti Nagar, Durgapura, Jaipur",
-      pincode: "302018",
-      orderValue: 2400,
-      lines,
-      strictness: "balanced",
-      pastOrders: seed,
-      codBlockedPhones: ["9829011223"],
+  it("caps a % or ₹ discount at 90% of the subtotal", () => {
+    expect(capDiscount(lines, { type: "percent", value: 150 }).discount).toEqual({
+      type: "percent",
+      value: 90,
     });
-    expect(risk.action).toBe("prepaid_only");
-    expect(buyerPrepaidReason(risk)).toBe("COD isn't available for this order.");
-  });
-
-  it("explains a custom order to the seller in the third person", () => {
-    const lines: OrderLine[] = [
-      { id: "1", type: "custom", name: "Lehenga", qty: 1, unitPrice: 4500, weightKg: 1.2 },
-    ];
-    const risk = scoreRisk({
-      phone: "98290 11223",
-      address: "C-14, Shanti Nagar, Durgapura, Jaipur",
-      pincode: "302018",
-      orderValue: 4500,
-      lines,
-      strictness: "balanced",
-      pastOrders: seed,
+    expect(capDiscount(lines, { type: "flat", value: 5000 }).discount).toEqual({
+      type: "flat",
+      value: 2205,
     });
-    expect(sellerVerdict(risk, "prepaid", formatINR)).toBe(
-      "Custom item, so COD was switched off and the buyer paid upfront.",
-    );
-    expect(buyerPrepaidReason(risk)).toBe(
-      "This order has a custom item, so the seller needs payment upfront.",
-    );
   });
-});
 
-describe("buyer page checks", () => {
   it("validates pincodes and fills city/state", () => {
-    expect(checkPincode("999999").status).toBe("invalid");
-    expect(checkPincode("000000").status).toBe("invalid");
-    expect(checkPincode("1100").status).toBe("invalid");
-    expect(checkPincode("110085")).toEqual({ status: "ok", city: "Delhi", state: "Delhi" });
-    expect(checkPincode("744101").status).toBe("unserviceable");
     expect(checkPincode("999999")).toEqual({ status: "invalid", error: "Invalid pincode" });
     expect(checkPincode("1100")).toEqual({ status: "invalid", error: "Enter a 6-digit pincode" });
+    expect(checkPincode("110085")).toEqual({ status: "ok", city: "Delhi", state: "Delhi" });
+    expect(checkPincode("452001")).toEqual({
+      status: "ok",
+      city: "Indore",
+      state: "Madhya Pradesh",
+    });
+    expect(checkPincode("744101").status).toBe("unserviceable");
   });
 
-  it("finds the city in an address and spots a mismatch", () => {
-    expect(
-      knownCityIn("Flat 12, B Block, Near Hanuman Mandir, Sector 4, Rohini, Delhi 110085"),
-    ).toBe("Delhi");
+  it("finds the city in an address", () => {
+    expect(knownCityIn("Flat 12, Rohini, Delhi 110085")).toBe("Delhi");
     expect(knownCityIn("12, 4th Cross, Indiranagar, Bangalore")).toBe("Bengaluru");
-    expect(cityFromAddress("Flat 3, Main Road, Hosur")).toBe("Hosur");
     expect(cityFromAddress("near the temple")).toBe("");
-  });
-
-  it("trust badge starts at 128 on the seed", () => {
-    expect(trustBadgeCount(seed)).toBe(128);
-  });
-});
-
-describe("orders this month", () => {
-  it("re-anchors seed dates so a demo saved days ago still has 63 seed orders this month", () => {
-    const fourDays = 4 * 24 * 60 * 60 * 1000;
-    const old = buildSeedOrders(Date.now() - fourDays);
-    const inMonth = (orders: typeof old) =>
-      orders.filter((o) => Date.now() - new Date(o.createdAt).getTime() < 30 * 24 * 60 * 60 * 1000)
-        .length;
-    expect(inMonth(old)).toBeLessThan(63);
-    const { orders } = rebaseSeed(old, undefined);
-    expect(inMonth(orders)).toBe(63);
   });
 });

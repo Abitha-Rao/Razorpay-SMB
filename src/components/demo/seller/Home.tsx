@@ -7,7 +7,7 @@ export function Home() {
   const today = new Date().toDateString();
   const todayCount = orders.filter((o) => new Date(o.createdAt).toDateString() === today).length;
   const awaiting = orders.filter((o) => o.status === "awaiting_payment").length;
-  const toShip = orders.filter((o) =>
+  const toDeliver = orders.filter((o) =>
     ["paid", "cod_confirmed", "partial_paid"].includes(o.status),
   ).length;
   const recent = orders.slice(0, 4);
@@ -15,7 +15,7 @@ export function Home() {
   const cards = [
     { label: "Orders today", value: todayCount, onClick: () => actions.setTab("orders") },
     { label: "Awaiting payment", value: awaiting, onClick: () => actions.setTab("orders") },
-    { label: "To ship", value: toShip, onClick: () => actions.setTab("orders") },
+    { label: "To deliver", value: toDeliver, onClick: () => actions.setTab("orders") },
   ];
 
   return (
@@ -42,7 +42,7 @@ export function Home() {
         + New order
       </Btn>
       <p className="mt-2 text-center text-xs text-navy/50">
-        Paste a buyer's chat – AI drafts the order for you
+        Paste a buyer's chat – AI drafts the order, you share the payment link
       </p>
 
       <div className="mt-6 flex items-center justify-between">

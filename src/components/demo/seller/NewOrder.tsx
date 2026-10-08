@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import {
   Btn,
   Card,
@@ -9,7 +11,7 @@ import {
 } from "@/components/demo/ui";
 import { AI_TIMEOUT_MS, draftOrderFn } from "@/lib/demo/ai.functions";
 import {
-  PRESETS,
+  SAMPLES,
   fallbackDraft,
   isPlaceholderAddress,
   titleCaseName,
@@ -68,6 +70,24 @@ export function NewOrder() {
   const draft = useStore((s) => s.draft);
   const catalog = useStore((s) => s.catalog);
   const settings = useStore((s) => s.settings);
+  // "Use sample chat" cycles through the samples; this is the next one to load.
+  const [nextSample, setNextSample] = useState(0);
+  const [sampleNote, setSampleNote] = useState<string | null>(null);
+
+  function loadSample() {
+    const index = nextSample % SAMPLES.length;
+    const sample = SAMPLES[index]!;
+    actions.updateDraft({
+      chat: sample.chat,
+      from: sample.from,
+      status: "editing",
+      lines: [],
+      uncertain: [],
+    });
+    setSampleNote(`Sample ${index + 1} of ${SAMPLES.length}: ${sample.label}`);
+    setNextSample(index + 1);
+    void runDraft();
+  }
 
   async function runDraft() {
     const { draft: d, catalog: cat, settings: st } = getState();
@@ -117,6 +137,8 @@ export function NewOrder() {
       addressText: address,
       pincode: r.pincode ?? address.match(/\b[1-9]\d{5}\b/)?.[0] ?? "",
       useSavedAddress: wantsSaved,
+      // Custom items need payment upfront by default; the seller can change it below.
+      codOffered: !lines.some((l) => l.type === "custom"),
       paymentHint: r.payment_hint ?? "unknown",
       uncertain,
     });
@@ -141,29 +163,16 @@ export function NewOrder() {
               className={cn(inputCls, "resize-none leading-relaxed")}
             />
           </Field>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {PRESETS.map((p, i) => (
-              <button
-                key={p.key}
-                onClick={() =>
-                  actions.updateDraft({
-                    chat: p.chat,
-                    from: p.from,
-                    status: "editing",
-                    lines: [],
-                    uncertain: [],
-                  })
-                }
-                className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs font-medium",
-                  draft.chat === p.chat
-                    ? "border-rzp bg-rzp/10 text-rzp-dark"
-                    : "border-navy/15 bg-white text-navy/75 hover:border-rzp/50",
-                )}
-              >
-                {String.fromCharCode(97 + i)}) {p.label}
-              </button>
-            ))}
+          <div className="mt-2 flex items-center gap-2">
+            <Btn
+              size="sm"
+              variant="secondary"
+              disabled={draft.status === "loading"}
+              onClick={loadSample}
+            >
+              Use sample chat
+            </Btn>
+            {sampleNote && <span className="text-[11px] text-navy/50">{sampleNote}</span>}
           </div>
           {draft.from && (
             <p className="mt-2 text-xs text-navy/55">
@@ -217,6 +226,33 @@ export function NewOrder() {
               </p>
             </Card>
 
+            <Card className="space-y-2 bg-white ring-1 ring-navy/10">
+              <p className="text-sm font-semibold text-navy">Payment options</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { offered: true, label: "Pay now + COD" },
+                  { offered: false, label: "Pay now only" },
+                ].map((o) => (
+                  <button
+                    key={o.label}
+                    onClick={() => actions.updateDraft({ codOffered: o.offered })}
+                    className={cn(
+                      "rounded-xl border-2 px-3 py-2.5 text-sm font-medium",
+                      draft.codOffered === o.offered
+                        ? "border-rzp bg-rzp/8 text-navy"
+                        : "border-navy/12 text-navy/60",
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-navy/50">
+                You decide what the buyer can choose. If COD is on, your COD rules still apply when
+                they pick it.
+              </p>
+            </Card>
+
             <p className="rounded-xl bg-rzp/8 px-3 py-2.5 text-xs leading-relaxed text-navy/75">
               AI drafted this from the chat. Check it before sending – you stay in charge of the
               conversation.
@@ -228,7 +264,7 @@ export function NewOrder() {
               disabled={!canCreate}
               onClick={() => actions.createLink()}
             >
-              Create link
+              Create payment link
             </Btn>
             {!canCreate && (
               <p className="-mt-3 text-center text-xs text-[#b54708]">
@@ -400,7 +436,7 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
               onClick={() =>
                 actions.updateDraft({ lines: draft.lines.filter((l) => l.id !== line.id) })
               }
-              className="text-xs font-medium text-risk"
+              className="text-xs font-medium text-danger"
             >
               Remove
             </button>

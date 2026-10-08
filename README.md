@@ -1,129 +1,97 @@
-# Razorpay Order Link (concept prototype)
+# Chat Checkout (concept prototype)
 
-A clickable, mobile-first prototype for a product-management challenge. A one-person Instagram or WhatsApp seller with no website pastes a buyer's chat, AI drafts the order, and the seller confirms and shares a Razorpay-hosted link. The buyer confirms the address and pays, or gets a COD decision based on risk, and the order lands in the seller's order book.
+A clickable, mobile-first prototype for a product-management challenge. A one-person Instagram or WhatsApp seller pastes a buyer's chat, AI drafts the order, the seller confirms it and shares a payment link from their own WhatsApp, and the buyer checks the order, adds an address and pays. If the buyer picks cash on delivery (COD), a few simple rules decide what they're offered. The seller marks each order Delivered or Returned, and their track record builds from real, paid deliveries.
 
-> Prototype only: the Razorpay checkout is simulated and no real payments happen. This is a concept and is not affiliated with or endorsed by Razorpay.
+> Prototype only: the checkout is simulated and no real payments happen. This is a concept and is not affiliated with or endorsed by Razorpay.
 
-## Demo path (about 90 seconds)
+## Demo path (under 2 minutes)
 
-1. **Seller app** → **New order** → tap preset **b) New COD buyer** → **Draft with AI** → **Create link** → **Share on WhatsApp** (or close the sheet with ✕, Escape or a tap outside).
-2. **Buyer view** toggle → **Confirm address** → **Accept** the cleaned address (city and state fill from the pincode) → **Continue to payment**.
-3. Checking order… → medium risk, so the payment screen offers only **Pay now** or **Pay ₹490 now, rest on delivery** → pay with any UPI app.
-4. Switch to **Seller app** → **Orders**. ORD-1064 shows **Partial paid**, total ₹2,569 ("₹490 paid · ₹2,079 on delivery"), and its detail says: _"New number and the address had no street, so we asked for ₹490 upfront."_
-5. **Summary** → COD refusal rate with "Before Order Link: 31%", the "Saved this month" card, the Pro card, "Ready for your own store?" card (64 orders this month) and Working capital card.
+1. **Seller app** → **New order** → **Use sample chat** (fills the chat and drafts the order in one tap). Check the draft, then **Create payment link**.
+2. **Share on WhatsApp** (or **Copy message**). The app never messages the buyer itself.
+3. **Buyer view** → **Confirm address** → **Continue to payment**. The prepaid offer and the COD fee sit side by side. Pick **Pay now** and pay with any UPI app.
+4. **Seller app** → **Orders** → open the order → **Mark delivered**.
+5. **Record** shows the track record grow (paid & delivered orders, return rate).
 
-The demo state (orders, settings, current draft and link, COD-not-allowed list) is saved in `localStorage`, so a page refresh keeps the order you just created. **Reset demo** (top right) clears it and restores Balanced strictness, the ₹49 COD fee, free shipping on prepaid, the 63 seed orders, and an empty COD-not-allowed list.
+Tap **Use sample chat** again for the next sample. Each one meets a different COD rule:
 
-## Messages: share or copy, never sent by Razorpay
+| Sample             | Buyer                        | What happens when they pick COD             |
+| ------------------ | ---------------------------- | ------------------------------------------- |
+| 1. New buyer       | Priya (new number)           | COD allowed, with a nudge to pay now        |
+| 2. Returned parcel | Rohit (one returned order)   | Pay a small part now to confirm COD         |
+| 3. Blocked buyer   | Vikram (on the Blocked list) | Prepaid only                                |
+| 4. Trusted buyer   | Anjali (on the Trusted list) | COD allowed; her saved address is prefilled |
 
-Every buyer-facing message opens a sheet with the prefilled text, **Share on WhatsApp** and **Copy message**. The seller sends it from their own WhatsApp:
+**Reset demo** (top right) restores the seed data: one seller, 12 orders (one returned order, one trusted buyer, one blocked buyer), the ₹49 COD fee, free shipping on prepaid, and the Trusted and Blocked lists. The state is saved in `localStorage`, so a refresh keeps what you created.
 
-| Message          | Where                                                  | Example                                                                                                          |
-| ---------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Order link       | After **Create link**                                  | "Hi Priya, here is your order from Meera's Handloom: ₹2,450. Confirm address and pay here: rzp.io/ol/AB12CD"     |
-| Payment reminder | **Remind buyer** on an awaiting order                  | "Hi Jyoti, a gentle reminder for your order from Meera's Handloom (₹3,650). Pay or choose COD here: rzp.io/ol/…" |
-| COD confirmation | **Confirm COD with buyer** on a COD or part-paid order | "Hi Priya, confirming your COD order of ₹2,079 … Please reply YES to confirm"                                    |
-| Shipping update  | Opens after **Mark as shipped**                        | "Hi Priya, your order … has shipped via Delhivery, tracking number DL14902231. Track: rzp.io/ol/AB12CD"          |
+## Seller flow
 
-Every sheet closes with ✕, Escape, a tap outside, after sharing or copying, and when switching between Seller app and Buyer view. Toasts last 3 seconds and are cleared whenever the screen or view changes.
+- **Paste the buyer's chat.** AI drafts items, quantity, price and buyer name, and flags missing details such as size or weight under "Check these".
+- **The seller has the final say.** Every line, the discount (capped at 90% of the subtotal) and the **Payment options** (Pay now + COD, or Pay now only) are editable. Totals are always computed from the lines and can't be typed in. Custom items default to Pay now only.
+- **Share the payment link** from your own WhatsApp (share or copy). **Remind buyer** and **Confirm COD with buyer** work the same way. Every sheet closes with ✕, Escape, a tap outside, after sharing or copying, and when switching between Seller app and Buyer view.
 
-## Shipping and outcomes (no aggregator, no tracking API)
+## Buyer flow
 
-- **Ship order** (on Paid, COD confirmed or Partial paid orders) shows the shipping details read-only: name, phone, full address, pincode, weight and, for COD, the amount to collect. It also has **Copy for courier**, a courier dropdown (Delhivery, Shadowfax, Ekart, India Post, DTDC, Other) and a tracking number field (optional for Other). **Mark as shipped** then opens the shipping-update sheet.
-- **Tracking link:** a "Track on [courier]" link (a placeholder URL to the courier's site) appears on the seller's order and on the buyer's order page.
-- **Shipped orders** have **Mark as delivered** and **Mark as returned**. If neither is tapped, the order becomes Delivered automatically 10 days after shipping. The demo links **Simulate 10 days later** and, for COD, **Simulate doorstep UPI payment** (Delivered and payment-verified) let you show this without waiting.
-- **Returns:** a returned parcel adds the buyer's phone to **Settings → COD not allowed** (removable) and counts in the Summary refusal rate and money lost.
-- **Seller-marked deliveries** show a "Marked by you" tag.
-- **Trust badge:** "N orders completed via Razorpay" counts only payment-verified deliveries (prepaid, part-paid or doorstep UPI) minus returns. It starts at 128 on the seed data.
+- Checks the order, then enters an address with four address fields (address, pincode, city, state) plus name and phone.
+- **Simple address rules only:** every field filled, a valid pincode (6 digits starting 1–8), and a pincode that matches the city. A mismatch is a gentle amber flag that never blocks the buyer: "Address says X but pincode is for Y – please check." City and state fill from the pincode.
+- **Saved address:** if this phone number has ordered before, its saved address is prefilled.
+- Sees **Pay now** (prepaid offer) and **Cash on delivery** (+ COD fee) side by side.
 
-## Risk rules (simulated, deterministic)
+## COD rules
 
-All rules live in [`src/lib/demo/risk.ts`](src/lib/demo/risk.ts). The score is clamped to 0–100.
+All in [`src/lib/demo/cod.ts`](src/lib/demo/cod.ts). There is no risk score and no risk level. When the buyer picks COD, the checks run in this order:
 
-| Rule                                                                               | Points       |
-| ---------------------------------------------------------------------------------- | ------------ |
-| New phone number (not in past orders)                                              | +30          |
-| This phone has a past returned COD order                                           | +25          |
-| Address confidence is low (no house/flat number, or no street and only a landmark) | +15          |
-| Pincode is tier 3 (seeded list in `seed.ts`)                                       | +10          |
-| Order value above ₹3,000                                                           | +10          |
-| Custom (non-catalog) line in the order                                             | +20          |
-| Repeat buyer with 2+ delivered orders                                              | −20          |
-| Phone is on the seller's COD-not-allowed list                                      | prepaid only |
+0. **The seller's own choices first:** "Allow COD anyway" (override), and "Pay now only" on the order.
+1. **Trusted buyers** (the seller's list) are allowed COD.
+2. Otherwise:
+   - **Blocked buyers** get prepaid only.
+   - A buyer with a **returned parcel** in their history pays a small part now (20% of the order, rounded to ₹10, capped at 50%) to confirm COD.
+   - **Everyone else** is allowed COD, with a nudge to pay now.
 
-| Strictness         | Medium (pay part upfront) | High (prepaid only) |
-| ------------------ | ------------------------- | ------------------- |
-| Relaxed            | ≥ 50                      | ≥ 80                |
-| Balanced (default) | ≥ 35                      | ≥ 65                |
-| Strict             | ≥ 20                      | ≥ 45                |
+The buyer sees one of three outcomes: **COD allowed**, **a part-payment to confirm COD**, or **prepaid only** (with a one-line reason).
 
-- Custom orders are always prepaid only in Balanced and Strict.
-- On medium risk, the upfront amount is 20% of the order value, rounded to ₹10, with a minimum of ₹100 and capped at 50%.
-- **When the check runs:** when the buyer taps **Continue to payment**. The payment screen then shows only valid options: low risk gets **Pay now / COD**, medium gets **Pay now / Pay ₹X now, rest on delivery**, and high risk or a custom item gets only **Pay now** with a one-line reason. COD is never shown and then refused.
-- **Seller's order page:** the verdict talks about the buyer in the third person, for example "Custom item, so COD was switched off and the buyer paid upfront." The buyer page keeps its own wording, for example "This order has a custom item, so the seller needs payment upfront."
-- Every reason that fires is stored on the order and shown under "Rules that fired".
+> Prototype rules. Production would reuse Razorpay Magic Checkout's COD rules.
 
-**Preset b scores 45 in Balanced:** +30 for a new number and +15 because the address has a landmark but no street. 45 is medium, so the buyer is asked for 20% of ₹2,450, which is ₹490. `src/test/demo-path.test.ts` locks this in, so a change to the scoring that breaks the demo fails the tests.
+## Seller override and Trusted buyers
 
-### Prices
+- **Trusted buyers:** mark any buyer as Trusted from the **Buyers** tab or with **Add to trusted** on an order. The same screen lists Blocked buyers (with **Unblock**).
+- **Allow COD anyway:** on an order still awaiting payment where the COD rules say prepaid only or part-payment, the seller can tap this. The buyer's screen updates at once, and the order carries an **Override** tag in the order book.
 
-The total is always computed from the lines (subtotal − discount). Neither the seller nor the buyer can type a total. A discount is capped at 90% of the subtotal, whether entered as % or ₹, with an inline warning. **Create link** stays disabled while the total is ₹0 or any line has no price.
+## Order book
 
-- **Pay now:** order value, with free shipping by default (Settings → Prepaid offer).
-- **COD:** order value + ₹70 shipping + ₹49 COD fee (configurable).
+One list of all orders: buyer, amount, prepaid or COD, payment status, and the Override tag. Search and filters by status and payment type. The seller marks each order **Delivered** or **Returned** by hand. Nothing is automatic.
 
-## AI calls
+## Track record
 
-The calls are in [`src/lib/demo/ai.functions.ts`](src/lib/demo/ai.functions.ts). They run as TanStack Start **server functions**, so the API key never reaches the browser. Model: `claude-haiku-4-5`.
+- Counts only orders **paid through the payment link** (in full or in part) and **marked Delivered**. Cash-only COD deliveries are left out because they can't be verified.
+- **Return rate** = returned ÷ (delivered + returned), across all orders, so returns can't be hidden.
+- Shown on the seller's **Record** tab, on the buyer's payment-link screen (you can turn this off in Settings), and on a shareable page at [`/track-record`](src/routes/track-record.tsx).
 
-| Call            | System prompt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Order drafting  | "You turn an Indian small seller's WhatsApp/Instagram chat into a draft order. Use the seller's catalog where an item matches; otherwise mark the line custom and do not invent a price unless the chat states one. Return only JSON: {buyer_name, buyer_phone, lines:[{type:'catalog'\|'custom', catalog_id?, name, qty, unit_price?, size?}], discount:{type:'flat'\|'percent', value}\|null, payment_hint:'prepaid'\|'cod'\|'unknown', address_text?, uncertain:[strings]}. Never write messages to the buyer." Input: the chat plus the catalog as JSON. |
-| Address cleanup | "Clean an Indian delivery address. Fix spacing and capitalisation and order it as house/flat, building, street, landmark, area, city, pincode. Do not add details that are not in the input. Return JSON: {clean_address, missing:[strings], confidence:'high'\|'medium'\|'low'}."                                                                                                                                                                                                                                                                           |
-| Risk verdict    | "Explain a COD risk decision to a small seller in one or two plain sentences, no jargon, no blame on the buyer. Input: tier, action taken, reasons list. Return plain text."                                                                                                                                                                                                                                                                                                                                                                                 |
+## AI
 
-Catalog prices always come from the catalog, whatever price the model returns.
+Only order drafting uses AI ([`src/lib/demo/ai.functions.ts`](src/lib/demo/ai.functions.ts)). It runs as a TanStack Start server function, so the API key never reaches the browser. Model: `claude-haiku-4-5`.
 
-### Turning live AI on
+> "You turn an Indian small seller's WhatsApp/Instagram chat into a draft order. Use the seller's catalog where an item matches; otherwise mark the line custom and do not invent a price unless the chat states one. Return only JSON: {buyer_name, buyer_phone, lines:[{type:'catalog'|'custom', catalog_id?, name, qty, unit_price?, size?}], discount:{type:'flat'|'percent', value}|null, payment_hint:'prepaid'|'cod'|'unknown', address_text?, uncertain:[strings]}. Never write messages to the buyer."
 
-1. In Lovable, add a secret named `ANTHROPIC_API_KEY` in the project's settings (Secrets or environment variables). The server reads it from `process.env` or the Cloudflare worker bindings.
-2. Re-publish. **Settings → Use live AI (Claude)** shows "Connected".
+Catalog prices always come from the catalog. If no key is set, or the call fails or takes longer than 8 seconds, the app silently falls back to a hard-coded parser ([`src/lib/demo/fallback.ts`](src/lib/demo/fallback.ts)); the four sample chats return fixed drafts. "Drafted by AI" appears only when Claude answered.
 
-If no key is set, or a call fails, returns bad JSON or takes longer than 8 seconds, the app silently falls back to the parser in [`src/lib/demo/fallback.ts`](src/lib/demo/fallback.ts). The fallback returns the expected draft for the three preset chats, so the demo always works. It also reads per-item quantities, % or ₹ discounts, names and phone numbers from free-form chats.
-
-What you see on screen:
-
-- **Drafts:** "Drafted by AI" appears only when Claude answered. A fallback draft shows no label.
-- **Risk verdicts:** "Why:" appears before the sentence only when Claude wrote it. A fallback verdict is shown with no label.
-- **Settings:** shows "Connected" when the server can see the key. To record the demo, switch live AI off there so a slow API call can't spoil the take.
-
-### Draft and buyer-page edge cases
-
-- **Names** are capitalised ("priya" → "Priya").
-- **"Same/old address"** in the chat is never copied into the address field. The app looks up that phone's last order and prefills its address and pincode, and the buyer page says "Using address from the last order".
-- **Custom lines** with no stated weight get "Check weight" in the "Check these" list.
-- **Pincodes** must be 6 digits starting with 1–8 (fewer digits show "Enter a 6-digit pincode"; 000000 or 999999 show "Invalid pincode"). City and state clear while the pincode is invalid. A seeded list marks some pincodes "Not serviceable", and city and state fill from a seeded lookup. If the lookup has no city, it comes from the cleaned address, and "Enter your city" shows if it is still empty. A city is required before Continue. If the address names a different city from the pincode, the warning "Address and pincode don't match – please check" appears, but it doesn't block Continue.
+**API key:** add a secret named `ANTHROPIC_API_KEY` in Lovable's project settings (Cloud → Secrets) and re-publish. Never put it in the code or a chat. **Settings → Use live AI** shows "Connected" when the server can see it.
 
 ## What is simulated
 
-- **Razorpay checkout:** a mock UPI, card and netbanking sheet. Only UPI completes, and no money moves.
-- **WhatsApp share:** shows a toast. Copy really copies the message.
+- **Checkout:** a mock UPI, card and netbanking sheet. Only UPI completes, and no money moves.
+- **WhatsApp:** share shows a toast. Copy really copies the message.
 - **Pincodes:** serviceability and the city/state lookup use small seeded lists.
-- **Courier tracking:** placeholder links to each courier's site. There's no tracking API, so delivery is marked by the seller, by a doorstep UPI payment, or automatically after 10 days.
-- **Seed data:** 63 past orders over 4 weeks (about 35% prepaid, 4 returned COD parcels, repeat buyer Anjali with 3 delivered orders, and number `98111 22233` with one past return), so the demo order becomes the 64th this month.
-- **COD refusal rate:** returned ÷ COD parcels with a known outcome (delivered or returned), shown as "Based on X shipped orders with a known outcome". Seed order dates re-anchor to today when the demo is reopened, so "Orders this month" always includes every new order.
-- **"Saved this month":** (31% baseline refusal rate − current rate) × this month's COD orders × ₹180. The 31% "before" rate is an assumed baseline.
-- **Pro trial, store migration, loan eligibility:** these show a "not in prototype" toast.
-- **State:** held in memory in one store, shared by the seller and buyer views.
+- **Delivered / Returned:** manual taps by the seller. There is no courier or tracking integration.
+- **Track record page:** it shows this browser's demo data, not a shared database.
 
 ## Development
 
-This is a TanStack Start + React + Tailwind app, built from a Lovable template and synced with Lovable through GitHub.
+TanStack Start + React + Tailwind, built from a Lovable template and synced with Lovable through GitHub.
 
 ```sh
 bun install
 bun run dev      # http://localhost:8080
-bun run test     # risk rules + demo path tests
+bun run test     # COD rules, track record and full-path tests
 bun run build
 ```
 
