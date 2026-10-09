@@ -42,7 +42,7 @@ export function Home() {
         + New order
       </Btn>
       <p className="mt-2 text-center text-xs text-navy/50">
-        Paste a buyer's chat – AI drafts the order, you share the payment link
+        Paste a buyer's order message – AI drafts the order, you share the payment link
       </p>
 
       <div className="mt-6 flex items-center justify-between">

@@ -7,7 +7,7 @@ import type { CatalogItem, DraftResult } from "./types";
 
 export type Sample = {
   key: "new" | "returned" | "blocked" | "trusted";
-  /** What this sample shows, for the caption under "Use sample chat". */
+  /** What this sample shows, for the caption under "Use a sample message". */
   label: string;
   /** Simulates the chat being shared from this WhatsApp contact. */
   from?: { name: string; phone: string } | undefined;
@@ -15,13 +15,13 @@ export type Sample = {
 };
 
 /**
- * "Use sample chat" cycles through these. Each one meets a different COD rule:
+ * "Use a sample message" cycles through these. Each one meets a different COD rule:
  * a new buyer, a buyer with a returned parcel, a blocked buyer and a trusted buyer.
  */
 export const SAMPLES: Sample[] = [
   {
     key: "new",
-    label: "New buyer asks for COD",
+    label: "New buyer, COD",
     chat: "hi, the green bandhani saree pls, cod. send to flat 12 b block near hanuman mandir sector 4 rohini delhi 110085. priya 9811204521",
   },
   {
@@ -166,7 +166,7 @@ export function fallbackDraft(
   if (lines.length === 0) {
     lines.push({
       type: "custom",
-      name: "Item from chat (edit name)",
+      name: "Item from the message (edit name)",
       qty: qtyMatch ? Number(qtyMatch[1]) : 1,
       unit_price: null,
       weight_kg: 0.3,
@@ -206,7 +206,7 @@ export function fallbackDraft(
     : /gpay|upi|phonepe|paytm|prepaid|pay now|transfer/i.test(chat)
       ? "prepaid"
       : "unknown";
-  if (!phone) uncertain.push("Buyer phone not in chat");
+  if (!phone) uncertain.push("Buyer phone not in the message");
 
   return {
     buyer_name: buyerName ?? from?.name ?? null,

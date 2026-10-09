@@ -13,9 +13,17 @@ import type {
 } from "./types";
 
 export const SELLER: Seller = {
-  name: "Meera's Handloom",
+  name: "Shristi's Handloom",
   city: "Jaipur",
 };
+
+/** Two-letter initials for the seller avatar, e.g. "SH". */
+export const SELLER_INITIALS = SELLER.name
+  .split(/\s+/)
+  .map((w) => w[0])
+  .join("")
+  .slice(0, 2)
+  .toUpperCase();
 
 export const DEFAULT_SETTINGS: Settings = {
   codFee: 49,

@@ -28,8 +28,3 @@ export function trackRecord(orders: Order[]): TrackRecord {
     returnRatePct: settled ? Math.round((returned / settled) * 100) : null,
   };
 }
-
-export function trackRecordLine(r: TrackRecord): string {
-  const orders = `${r.paidDelivered} paid & delivered ${r.paidDelivered === 1 ? "order" : "orders"}`;
-  return r.returnRatePct === null ? orders : `${orders} · ${r.returnRatePct}% return rate`;
-}

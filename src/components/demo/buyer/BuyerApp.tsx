@@ -7,9 +7,16 @@ import { fullAddress } from "@/lib/demo/address";
 import { ONLINE_METHODS, UPI_APPS, checkoutSummary, lastUsedPayment } from "@/lib/demo/checkout";
 import { prepaidOnlyReason } from "@/lib/demo/cod";
 import { linkUrl } from "@/lib/demo/messages";
-import { discountAmount, dueOnDelivery, formatINR, lineTotal } from "@/lib/demo/money";
+import {
+  buyerPrices,
+  discountAmount,
+  dueOnDelivery,
+  formatINR,
+  lineTotal,
+  subtotal,
+} from "@/lib/demo/money";
 import { checkPincode, cityFromAddress, knownCityIn } from "@/lib/demo/pincode";
-import { SELLER } from "@/lib/demo/seed";
+import { SELLER, SELLER_INITIALS } from "@/lib/demo/seed";
 import {
   actions,
   codCheckFor,
@@ -44,6 +51,9 @@ export function BuyerApp() {
   return (
     <div className="flex min-h-full flex-col bg-surface">
       <BuyerHeader order={order} />
+      {(buyer.step === "mobile" || buyer.step === "otp" || buyer.step === "address") && (
+        <TopOrderSummary order={order} />
+      )}
       {buyer.step === "mobile" && <MobileStep />}
       {buyer.step === "otp" && <OtpStep />}
       {buyer.step === "address" && (
@@ -70,8 +80,8 @@ function NoLink() {
       <div className="mb-3 text-4xl">🔗</div>
       <h2 className="text-lg font-semibold text-navy">No payment link yet</h2>
       <p className="mt-1 text-sm text-navy/60">
-        In the seller app, tap <b>New order</b>, draft from a chat and create a payment link. It
-        opens here.
+        In the seller app, tap <b>New order</b>, draft from an order message and create a payment
+        link. It opens here.
       </p>
       <Btn className="mt-5" onClick={() => actions.setView("seller")}>
         Go to seller app
@@ -87,7 +97,7 @@ function BuyerHeader({ order }: { order: Order }) {
       <p className="text-[11px] text-navy/45">Chat Checkout · {linkUrl(order)}</p>
       <div className="mt-2 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-navy text-sm font-bold text-white">
-          MH
+          {SELLER_INITIALS}
         </div>
         <div>
           <p className="text-base font-semibold text-navy">{SELLER.name}</p>
@@ -96,6 +106,58 @@ function BuyerHeader({ order }: { order: Order }) {
       </div>
       {showRecord && <TrackRecordBadge />}
     </div>
+  );
+}
+
+/**
+ * The order as the seller created it, shown under the seller card so the buyer sees what they're
+ * paying for before they fill in an address. One line per item.
+ */
+function TopOrderSummary({ order }: { order: Order }) {
+  const settings = useStore((s) => s.settings);
+  const p = buyerPrices(order.lines, order.discount, settings);
+  const sub = subtotal(order.lines);
+  const discount = sub - p.value;
+  return (
+    <section className="mx-4 mt-3 rounded-2xl border border-navy/8 bg-white p-4">
+      <h2 className="mb-2 text-sm font-semibold text-navy">Order summary</h2>
+      <ul className="space-y-1">
+        {order.lines.map((l) => (
+          <li key={l.id} className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate text-navy" title={l.name}>
+              {l.name} × {l.qty}
+              {l.size ? ` (${l.size})` : ""}
+            </span>
+            <span className="shrink-0 font-medium text-navy">{formatINR(lineTotal(l))}</span>
+          </li>
+        ))}
+      </ul>
+      <dl className="mt-2 space-y-1 border-t border-navy/8 pt-2 text-sm">
+        <div className="flex justify-between">
+          <dt className="text-navy/60">Subtotal</dt>
+          <dd className="font-medium text-navy">{formatINR(sub)}</dd>
+        </div>
+        {discount > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-navy/60">Discount</dt>
+            <dd className="font-medium text-navy">−{formatINR(discount)}</dd>
+          </div>
+        )}
+        <div className="flex justify-between">
+          <dt className="text-navy/60">Shipping</dt>
+          <dd className="font-medium text-navy">
+            {p.prepaidShipping ? formatINR(p.prepaidShipping) : "Free"}
+          </dd>
+        </div>
+        <div className="flex items-baseline justify-between border-t border-navy/8 pt-1.5">
+          <dt className="font-semibold text-navy">Total</dt>
+          <dd className="text-base font-bold text-navy">{formatINR(p.prepaidTotal)}</dd>
+        </div>
+      </dl>
+      <p className="mt-1.5 text-[11px] text-navy/45">
+        With COD: {formatINR(p.codShipping)} shipping + {formatINR(p.codFee)} COD Fee.
+      </p>
+    </section>
   );
 }
 
@@ -232,52 +294,26 @@ function AddressForm({
   const [name, setName] = useState(initial.name ?? "");
   const [address, setAddress] = useState(initial.address ?? "");
   const [pincode, setPincode] = useState(initial.pincode ?? "");
-  const [city, setCity] = useState(() => {
-    const p = checkPincode(initial.pincode ?? "");
-    const fromPin = p.status === "ok" || p.status === "unserviceable" ? p.city : "";
-    return initial.city || fromPin || cityFromAddress(initial.address ?? "");
-  });
-  const [cityEdited, setCityEdited] = useState(false);
   const [pinTouched, setPinTouched] = useState(false);
   const [label, setLabel] = useState<AddressLabel | undefined>(showSave ? "Home" : undefined);
 
+  // City and State come from the pincode and can't be typed. If the pincode lookup has no city,
+  // a city named in the address is used.
   const pin = checkPincode(pincode);
-  const pinCity = pin.status === "ok" || pin.status === "unserviceable" ? pin.city : "";
-  const state = pin.status === "ok" || pin.status === "unserviceable" ? pin.state : "";
+  const known = pin.status === "ok" || pin.status === "unserviceable";
+  const pinCity = known ? pin.city : "";
+  const state = known ? pin.state : "";
+  const city = known ? pin.city || cityFromAddress(address) : "";
 
-  function changePincode(p: string) {
-    setPincode(p);
-    const c = checkPincode(p);
-    if (cityEdited) return; // a city typed by hand is never replaced
-    if (c.status === "invalid" || c.status === "empty") setCity("");
-    else setCity(c.city || cityFromAddress(address) || city);
-  }
-
-  function changeAddress(v: string) {
-    setAddress(v);
-    if (!cityEdited && pin.status === "ok" && !pin.city) {
-      const known = knownCityIn(v);
-      if (known) setCity(known);
-    }
-  }
-
-  // A hand-typed city that differs from the pincode's, or a different known city in the address.
-  const typedCity = cityEdited ? city.trim() : "";
+  // A different known city named in the address than the pincode's: a gentle flag, never a block.
   const addressCity = knownCityIn(address);
-  const mismatchCity = !pinCity
-    ? ""
-    : typedCity && typedCity.toLowerCase() !== pinCity.toLowerCase()
-      ? typedCity
-      : addressCity && addressCity !== pinCity
-        ? addressCity
-        : "";
+  const mismatchCity = pinCity && addressCity && addressCity !== pinCity ? addressCity : "";
   const showPinError = pin.status === "invalid" && (pinTouched || pincode.length >= 6);
 
   const missing = [
     !name.trim() && "name",
     address.trim().length < 10 && "address",
     pin.status !== "ok" && "a valid, serviceable pincode",
-    !city.trim() && "city",
   ].filter(Boolean) as string[];
 
   return (
@@ -315,7 +351,7 @@ function AddressForm({
               rows={3}
               className={cn(inputCls, "resize-none")}
               value={address}
-              onChange={(e) => changeAddress(e.target.value)}
+              onChange={(e) => setAddress(e.target.value)}
             />
           </FormField>
           <FormField
@@ -339,7 +375,7 @@ function AddressForm({
               inputMode="numeric"
               maxLength={6}
               value={pincode}
-              onChange={(e) => changePincode(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) => setPincode(e.target.value.replace(/\D/g, ""))}
               onBlur={() => setPinTouched(true)}
             />
             {mismatchCity && (
@@ -349,22 +385,12 @@ function AddressForm({
             )}
           </FormField>
           <div className="grid grid-cols-2 gap-2">
-            <FormField
-              label="City"
-              hint={
-                pin.status === "ok" && !city.trim() ? (
-                  <p className="mt-1 text-xs font-medium text-danger">Enter your city</p>
-                ) : null
-              }
-            >
+            <FormField label="City">
               <input
-                className={inputCls}
+                className={cn(inputCls, "bg-surface")}
                 value={city}
-                placeholder="City"
-                onChange={(e) => {
-                  setCity(e.target.value);
-                  setCityEdited(e.target.value.trim() !== "");
-                }}
+                placeholder="From pincode"
+                readOnly
               />
             </FormField>
             <FormField label="State">

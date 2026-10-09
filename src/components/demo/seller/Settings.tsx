@@ -84,7 +84,7 @@ export function SettingsScreen() {
             }
             sub={
               aiAvailable
-                ? "Claude Haiku drafts orders from the buyer's chat."
+                ? "Claude Haiku drafts orders from the buyer's order message."
                 : "Add ANTHROPIC_API_KEY as a server secret to turn this on."
             }
             checked={settings.useLiveAi && aiAvailable}

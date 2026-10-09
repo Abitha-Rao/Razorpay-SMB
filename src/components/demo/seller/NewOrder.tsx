@@ -70,7 +70,7 @@ export function NewOrder() {
   const draft = useStore((s) => s.draft);
   const catalog = useStore((s) => s.catalog);
   const settings = useStore((s) => s.settings);
-  // "Use sample chat" cycles through the samples; this is the next one to load.
+  // "Use a sample message" cycles through the samples; this is the next one to load.
   const [nextSample, setNextSample] = useState(0);
   const [sampleNote, setSampleNote] = useState<string | null>(null);
 
@@ -118,7 +118,7 @@ export function NewOrder() {
           : "Buyer asked for their old address, but this number has no past order – ask for it",
       );
 
-    // Custom lines need a weight for shipping; flag any the chat didn't state.
+    // Custom lines need a weight for shipping; flag any the message didn't state.
     r.lines.forEach((l, i) => {
       if (lines[i]?.type === "custom" && !(typeof l.weight_kg === "number" && l.weight_kg > 0))
         uncertain.push(`Check weight: ${lines[i]!.name || "custom item"}`);
@@ -154,7 +154,7 @@ export function NewOrder() {
       <ScreenHeader title="New order" onBack={actions.back} />
       <div className="space-y-5 px-4 pt-4">
         <section>
-          <Field label="Paste the buyer's chat">
+          <Field label="Paste the buyer's order message">
             <textarea
               value={draft.chat}
               onChange={(e) => actions.updateDraft({ chat: e.target.value, from: undefined })}
@@ -170,14 +170,13 @@ export function NewOrder() {
               disabled={draft.status === "loading"}
               onClick={loadSample}
             >
-              Use sample chat
+              Use a sample message
             </Btn>
             {sampleNote && <span className="text-[11px] text-navy/50">{sampleNote}</span>}
           </div>
           {draft.from && (
             <p className="mt-2 text-xs text-navy/55">
-              Shared from WhatsApp chat with{" "}
-              <span className="font-medium text-navy">{draft.from.name}</span>
+              Order message from <span className="font-medium text-navy">{draft.from.name}</span>
             </p>
           )}
           <Btn
@@ -188,7 +187,7 @@ export function NewOrder() {
           >
             {draft.status === "loading" ? (
               <>
-                <Spinner /> Reading the chat…
+                <Spinner /> Reading the message…
               </>
             ) : (
               <>✨ Draft with AI</>
@@ -254,7 +253,7 @@ export function NewOrder() {
             </Card>
 
             <p className="rounded-xl bg-rzp/8 px-3 py-2.5 text-xs leading-relaxed text-navy/75">
-              AI drafted this from the chat. Check it before sending – you stay in charge of the
+              AI drafted this from the message. Check it before sending – you stay in charge of the
               conversation.
             </p>
 
@@ -401,7 +400,7 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
           <input
             className={inputCls}
             value={draft.buyerName}
-            placeholder="Not in chat"
+            placeholder="Not in the message"
             onChange={(e) => actions.updateDraft({ buyerName: e.target.value })}
           />
         </Field>
@@ -409,7 +408,7 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
           <input
             className={inputCls}
             value={draft.buyerPhone}
-            placeholder="Not in chat"
+            placeholder="Not in the message"
             onChange={(e) => actions.updateDraft({ buyerPhone: e.target.value })}
           />
         </Field>

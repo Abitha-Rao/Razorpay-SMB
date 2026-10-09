@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { TrackRecordCard } from "@/components/demo/TrackRecordParts";
-import { SELLER } from "@/lib/demo/seed";
+import { SELLER, SELLER_INITIALS } from "@/lib/demo/seed";
 
 const TITLE = `${SELLER.name} – track record on Chat Checkout`;
 const DESCRIPTION =
@@ -38,7 +38,7 @@ function TrackRecordPage() {
           </p>
           <div className="mt-3 flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-navy text-base font-bold text-white">
-              MH
+              {SELLER_INITIALS}
             </div>
             <div>
               <h1 className="text-xl font-bold text-navy">{SELLER.name}</h1>
@@ -46,7 +46,7 @@ function TrackRecordPage() {
             </div>
           </div>
           <div className="mt-5">
-            <TrackRecordCard />
+            <TrackRecordCard showReturnRate={false} />
           </div>
           <a href="/" className="mt-6 block text-center text-xs font-medium text-rzp">
             ← Open Chat Checkout

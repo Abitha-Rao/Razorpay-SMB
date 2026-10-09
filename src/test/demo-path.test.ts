@@ -16,6 +16,8 @@ import {
   DEFAULT_SETTINGS,
   ROHIT,
   SEED_CATALOG,
+  SELLER,
+  SELLER_INITIALS,
   VIKRAM,
   buildSeedOrders,
   seedAddressBook,
@@ -473,5 +475,43 @@ describe("blocking and adding buyers", () => {
     actions.addBuyerToList("blocked", "9876543210", "Meena");
     expect(getState().trusted.map((b) => b.name)).not.toContain("Meena");
     expect(getState().blocked.map((b) => b.name)).toContain("Meena");
+  });
+});
+
+describe("order message samples and seller identity", () => {
+  it("the seller is Shristi's Handloom in Jaipur", () => {
+    expect(SELLER.name).toBe("Shristi's Handloom");
+    expect(SELLER.city).toBe("Jaipur");
+    expect(SELLER_INITIALS).toBe("SH");
+  });
+
+  it("every sample message drafts an order, and the first caption reads 'New buyer, COD'", () => {
+    expect(SAMPLES[0]!.label).toBe("New buyer, COD");
+    for (const sample of SAMPLES) {
+      const d = fallbackDraft(sample.chat, SEED_CATALOG, sample.from);
+      expect(d.lines.length, sample.label).toBeGreaterThan(0);
+      expect(
+        d.lines.every((l) => l.type === "catalog" && l.unit_price),
+        sample.label,
+      ).toBe(true);
+      expect(d.payment_hint, sample.label).toBe("cod");
+    }
+  });
+
+  it("a sample flags a missing detail, and a message without a size flags the size", () => {
+    const flagged = SAMPLES.filter(
+      (s) => fallbackDraft(s.chat, SEED_CATALOG, s.from).uncertain.length > 0,
+    );
+    expect(flagged.length).toBeGreaterThan(0);
+    const d = fallbackDraft("2 blue kurti pls, cod. priya 9811204521", SEED_CATALOG);
+    expect(d.uncertain).toContain("Size not mentioned – please check");
+  });
+
+  it("order message wording replaces 'chat' in the drafted flags", () => {
+    const d = fallbackDraft("blue kurti size M", SEED_CATALOG);
+    expect(d.uncertain).toContain("Buyer phone not in the message");
+    expect(fallbackDraft("something nice", SEED_CATALOG).lines[0]!.name).toBe(
+      "Item from the message (edit name)",
+    );
   });
 });
