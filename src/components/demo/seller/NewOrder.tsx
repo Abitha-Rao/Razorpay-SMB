@@ -274,8 +274,9 @@ export function NewOrder() {
             </Card>
 
             <p className="rounded-xl bg-rzp/8 px-3 py-2.5 text-xs leading-relaxed text-navy/75">
-              AI drafted this from the message. Check it before sending – you stay in charge of the
-              conversation.
+              {draft.source === undefined
+                ? "You built this order. Check it before sending."
+                : "AI drafted this from the message. Check it before sending – you stay in charge of the conversation."}
             </p>
 
             <Btn
