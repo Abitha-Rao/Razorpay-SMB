@@ -408,6 +408,10 @@ export const actions = {
   updateDraft(patch: Partial<DraftState>) {
     setState((s) => ({ draft: { ...s.draft, ...patch } }));
   },
+  /** "Or build the order yourself": the same draft form, blank, with no AI call. */
+  startBlankDraft() {
+    setState((s) => ({ draft: { ...emptyDraft(), chat: s.draft.chat, status: "drafted" } }));
+  },
   updateSettings(patch: Partial<Settings>) {
     setState((s) => ({ settings: { ...s.settings, ...patch } }));
   },

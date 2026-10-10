@@ -14,18 +14,19 @@ A mobile-first app for one-person Instagram and WhatsApp sellers. The seller pas
 
 Tap **Use a sample message** again for the next sample. Each one meets a different COD rule:
 
-| Sample             | Buyer                        | What they see under Payment Options                              |
-| ------------------ | ---------------------------- | ---------------------------------------------------------------- |
-| 1. New buyer, COD  | Priya (new number)           | COD selectable, with a banner nudging them to pay online         |
-| 2. Returned parcel | Rohit (one returned order)   | "Pay a part now, rest on delivery" with the amount               |
-| 3. Blocked buyer   | Vikram (on the Blocked list) | COD disabled: "COD isn't available for this order"               |
-| 4. Trusted buyer   | Anjali (on the Trusted list) | COD selectable, no banner; her saved address loads after the OTP |
+| Sample             | Buyer                                                      | What they see under Payment Options                              |
+| ------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| 1. New buyer, COD  | Priya (new number), asks for a kurti without naming a size | COD selectable, with a banner nudging them to pay online         |
+| 2. Returned parcel | Rohit (one returned order)                                 | "Pay a part now, rest on delivery" with the amount               |
+| 3. Blocked buyer   | Vikram (on the Blocked list)                               | COD disabled: "COD isn't available for this order"               |
+| 4. Trusted buyer   | Anjali (on the Trusted list)                               | COD selectable, no banner; her saved address loads after the OTP |
 
 **Reset** (top right) restores the seed data: one seller, 12 orders (one returned order, one trusted buyer, one blocked buyer), saved addresses for the seed buyers, the ₹49 COD fee, free shipping on prepaid, and the Trusted and Blocked lists. The state is saved in `localStorage`, so a refresh keeps what you created.
 
 ## Seller flow
 
-- **Paste the buyer's order message.** AI drafts items, quantity, price and buyer name, and flags missing details such as size or weight under "Check these".
+- **Paste the buyer's order message.** AI drafts items, quantity, price and buyer name, and flags missing details such as size or weight under "Check these", right above the drafted lines. A sized item with no size is also flagged on its own line, and the form works this out itself, so the flag shows even if the AI reports nothing. It clears as soon as the seller types a size.
+- **Or build the order yourself.** A link under **Draft with AI** opens the same draft form, blank, with no AI call. The seller fills in the buyer name, phone and lines herself, so she's never stuck if a buyer orders by phone or the AI call fails.
 - **The seller has the final say.** Every line, the discount (capped at 90% of the subtotal) and the **Payment options** (Pay now + COD, or Pay now only) are editable. Totals are always computed from the lines and can't be typed in. Custom items default to Pay now only.
 - **Share the payment link** from your own WhatsApp (share or copy). **Remind buyer** and **Confirm COD with buyer** work the same way. Every sheet closes with ✕, Escape, a tap outside, after sharing or copying, and when switching between Seller app and Buyer view.
 

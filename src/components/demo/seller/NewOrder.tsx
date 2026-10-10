@@ -10,6 +10,7 @@ import {
   inputCls,
 } from "@/components/demo/ui";
 import { AI_TIMEOUT_MS, draftOrderFn } from "@/lib/demo/ai.functions";
+import { SIZE_FLAG, draftFlags, groundedSize, needsSize } from "@/lib/demo/draftChecks";
 import {
   SAMPLES,
   fallbackDraft,
@@ -34,7 +35,7 @@ import { cn } from "@/lib/utils";
 
 const MIN_LOADING_MS = 1000;
 
-function toLines(draft: DraftResult, catalog: CatalogItem[]): OrderLine[] {
+function toLines(draft: DraftResult, catalog: CatalogItem[], message: string): OrderLine[] {
   return draft.lines.map((l) => {
     const item =
       catalog.find((c) => c.id === l.catalog_id) ??
@@ -51,7 +52,7 @@ function toLines(draft: DraftResult, catalog: CatalogItem[]): OrderLine[] {
         qty: Math.max(1, Number(l.qty) || 1),
         unitPrice: item.price,
         weightKg: item.weightKg,
-        size: l.size ?? undefined,
+        size: groundedSize(l.size, message),
       };
     }
     return {
@@ -61,7 +62,7 @@ function toLines(draft: DraftResult, catalog: CatalogItem[]): OrderLine[] {
       qty: Math.max(1, Number(l.qty) || 1),
       unitPrice: typeof l.unit_price === "number" && l.unit_price > 0 ? l.unit_price : null,
       weightKg: typeof l.weight_kg === "number" && l.weight_kg > 0 ? l.weight_kg : 0.3,
-      size: l.size ?? undefined,
+      size: groundedSize(l.size, message),
     };
   });
 }
@@ -89,6 +90,14 @@ export function NewOrder() {
     void runDraft();
   }
 
+  /** Bring the drafted order, with its flags, into view once it appears. */
+  function showDraft() {
+    setTimeout(
+      () => document.getElementById("draft-order")?.scrollIntoView({ block: "start" }),
+      60,
+    );
+  }
+
   async function runDraft() {
     const { draft: d, catalog: cat, settings: st } = getState();
     if (!d.chat.trim()) return;
@@ -103,7 +112,7 @@ export function NewOrder() {
     const wait = MIN_LOADING_MS - (Date.now() - started);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     const r = result.draft;
-    const lines = toLines(r, cat);
+    const lines = toLines(r, cat, d.chat);
     const phone = r.buyer_phone ?? d.from?.phone ?? "";
     const uncertain = [...(r.uncertain ?? [])];
 
@@ -142,6 +151,7 @@ export function NewOrder() {
       paymentHint: r.payment_hint ?? "unknown",
       uncertain,
     });
+    showDraft();
   }
 
   const lines = draft.lines;
@@ -193,6 +203,17 @@ export function NewOrder() {
               <>✨ Draft with AI</>
             )}
           </Btn>
+          {draft.status === "editing" && (
+            <button
+              className="mt-2 w-full text-center text-sm font-medium text-rzp underline-offset-2 hover:underline"
+              onClick={() => {
+                actions.startBlankDraft();
+                showDraft();
+              }}
+            >
+              Or build the order yourself
+            </button>
+          )}
         </section>
 
         {draft.status === "loading" && <DraftSkeleton />}
@@ -267,9 +288,11 @@ export function NewOrder() {
             </Btn>
             {!canCreate && (
               <p className="-mt-3 text-center text-xs text-[#b54708]">
-                {allComplete
-                  ? "The total can't be ₹0 – lower the discount."
-                  : "Set a price and name for every line first."}
+                {lines.length === 0
+                  ? "Add at least one item first."
+                  : allComplete
+                    ? "The total can't be ₹0 – lower the discount."
+                    : "Set a price and name for every line first."}
               </p>
             )}
           </>
@@ -360,6 +383,9 @@ function DraftSkeleton() {
 
 function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
   const draft = useStore((s) => s.draft);
+  // Built by hand (no AI call) when there is no draft source.
+  const manual = draft.source === undefined;
+  const flags = draftFlags(draft.lines, draft.uncertain, catalog);
 
   function updateLine(id: string, patch: Partial<OrderLine>) {
     actions.updateDraft({
@@ -385,7 +411,7 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
   }
 
   return (
-    <section className="space-y-4">
+    <section id="draft-order" className="scroll-mt-16 space-y-4">
       <div className="flex items-center justify-between">
         <SectionTitle>Draft order</SectionTitle>
         {draft.source === "claude" && (
@@ -400,7 +426,7 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
           <input
             className={inputCls}
             value={draft.buyerName}
-            placeholder="Not in the message"
+            placeholder={manual ? "Buyer name" : "Not in the message"}
             onChange={(e) => actions.updateDraft({ buyerName: e.target.value })}
           />
         </Field>
@@ -408,11 +434,28 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
           <input
             className={inputCls}
             value={draft.buyerPhone}
-            placeholder="Not in the message"
+            placeholder={manual ? "Mobile number" : "Not in the message"}
             onChange={(e) => actions.updateDraft({ buyerPhone: e.target.value })}
           />
         </Field>
       </div>
+
+      {flags.length > 0 && (
+        <div className="rounded-xl border border-warning/40 bg-warning/8 px-3 py-2.5">
+          <p className="mb-1 text-xs font-semibold text-[#b54708]">Check these</p>
+          <ul className="list-disc space-y-0.5 pl-4 text-xs text-navy/80">
+            {flags.map((u, i) => (
+              <li key={i}>{u}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {draft.lines.length === 0 && (
+        <p className="rounded-xl border border-dashed border-navy/20 px-3 py-4 text-center text-xs text-navy/55">
+          Add the items the buyer ordered.
+        </p>
+      )}
 
       {draft.lines.map((line) => (
         <Card key={line.id} className="space-y-3">
@@ -526,7 +569,10 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
                 </button>
               </div>
               <input
-                className="h-8 w-16 rounded-lg border border-navy/15 bg-white px-2 text-xs text-navy outline-none focus:border-rzp"
+                className={cn(
+                  "h-8 w-16 rounded-lg border border-navy/15 bg-white px-2 text-xs text-navy outline-none focus:border-rzp",
+                  needsSize(line, catalog) && "border-warning ring-2 ring-warning/20",
+                )}
                 placeholder="Size"
                 value={line.size ?? ""}
                 onChange={(e) => updateLine(line.id, { size: e.target.value || undefined })}
@@ -536,6 +582,11 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
               {line.unitPrice ? formatINR(lineTotal(line)) : "—"}
             </span>
           </div>
+          {needsSize(line, catalog) && (
+            <p className="rounded-lg bg-warning/12 px-2.5 py-1.5 text-xs font-medium text-[#b54708]">
+              ⚠ {SIZE_FLAG}
+            </p>
+          )}
         </Card>
       ))}
 
@@ -562,17 +613,6 @@ function DraftEditor({ catalog }: { catalog: CatalogItem[] }) {
       >
         + Add line
       </button>
-
-      {draft.uncertain.length > 0 && (
-        <div className="rounded-xl border border-warning/40 bg-warning/8 px-3 py-2.5">
-          <p className="mb-1 text-xs font-semibold text-[#b54708]">Check these</p>
-          <ul className="list-disc space-y-0.5 pl-4 text-xs text-navy/80">
-            {draft.uncertain.map((u, i) => (
-              <li key={i}>{u}</li>
-            ))}
-          </ul>
-        </div>
-      )}
     </section>
   );
 }

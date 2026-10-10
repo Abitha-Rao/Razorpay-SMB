@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { checkoutSummary, lastUsedPayment } from "@/lib/demo/checkout";
+import { SIZE_FLAG, draftFlags, groundedSize, needsSize } from "@/lib/demo/draftChecks";
 import { codDecision, codSummary, prepaidOnlyReason } from "@/lib/demo/cod";
 import {
   SAMPLES,
@@ -87,15 +88,15 @@ describe("sample chats", () => {
     expect(SAMPLES.map((s) => s.key)).toEqual(["new", "returned", "blocked", "trusted"]);
   });
 
-  it("the new-buyer sample drafts Priya's saree for ₹2,450", () => {
+  it("the new-buyer sample drafts Priya's kurti for ₹1,200, with no size named", () => {
     const d = fallbackDraft(SAMPLES[0]!.chat, SEED_CATALOG);
     expect(d.buyer_name).toBe("Priya");
     expect(d.buyer_phone).toBe("9811204521");
     expect(d.payment_hint).toBe("cod");
     expect(d.pincode).toBe("110085");
     const lines = linesFrom(SAMPLES[0]!.chat);
-    expect(orderValue(lines, null)).toBe(2450);
-    expect(buyerPrices(lines, null, DEFAULT_SETTINGS).prepaidTotal).toBe(2450);
+    expect(orderValue(lines, null)).toBe(1200);
+    expect(buyerPrices(lines, null, DEFAULT_SETTINGS).prepaidTotal).toBe(1200);
   });
 
   it("the trusted sample asks for the old address, which is looked up from her last order", () => {
@@ -202,7 +203,7 @@ describe("full path in the store", () => {
     expect(order.id).toBe("ORD-1013");
     expect(getState().sheet?.kind).toBe("link");
 
-    actions.completePayment(order.id, "prepaid", 2450);
+    actions.completePayment(order.id, "prepaid", 1200);
     expect(find(order.id).status).toBe("paid");
     actions.markDelivered(order.id);
     expect(find(order.id).status).toBe("delivered");
@@ -219,7 +220,7 @@ describe("full path in the store", () => {
 
   it("a returned order is counted in the return rate and gives that phone a part-payment next time", () => {
     const order = newOrder("9811204521", "Priya");
-    actions.completePayment(order.id, "prepaid", 2450);
+    actions.completePayment(order.id, "prepaid", 1200);
     actions.markReturned(order.id);
     expect(find(order.id).status).toBe("returned");
     expect(trackRecord(getState().orders).returned).toBe(2);
@@ -439,7 +440,7 @@ describe("buyer checkout steps", () => {
 
   it("paying records the method and app for next time", () => {
     const order = link("9811204521");
-    actions.completePayment(order.id, "prepaid", 2450, "upi", "PhonePe");
+    actions.completePayment(order.id, "prepaid", 1200, "upi", "PhonePe");
     expect(lastUsedPayment("9811204521", getState().orders, "other")).toEqual({
       method: "upi",
       app: "PhonePe",
@@ -475,6 +476,87 @@ describe("blocking and adding buyers", () => {
     actions.addBuyerToList("blocked", "9876543210", "Meena");
     expect(getState().trusted.map((b) => b.name)).not.toContain("Meena");
     expect(getState().blocked.map((b) => b.name)).toContain("Meena");
+  });
+});
+
+describe("missing-detail flags", () => {
+  const kurti: OrderLine = {
+    id: "k",
+    type: "catalog",
+    catalogId: "kurti-blue",
+    name: "Blue cotton kurti",
+    qty: 1,
+    unitPrice: 1200,
+    weightKg: 0.3,
+  };
+  const saree: OrderLine = {
+    ...kurti,
+    id: "s",
+    catalogId: "saree-bandhani-green",
+    name: "Green bandhani saree",
+  };
+
+  it("sample 1 asks for a kurti without naming a size, so the form flags it", () => {
+    const sample = SAMPLES[0]!;
+    expect(sample.chat).toMatch(/kurti/i);
+    expect(sample.chat).not.toMatch(/size|\b(xs|s|m|l|xl|xxl|small|medium|large)\b/i);
+    const d = fallbackDraft(sample.chat, SEED_CATALOG);
+    expect(d.lines[0]).toMatchObject({ catalog_id: "kurti-blue", qty: 1 });
+    expect(d.lines[0]!.size).toBeFalsy();
+    expect(draftFlags(linesFrom(sample.chat), [], SEED_CATALOG)).toEqual([SIZE_FLAG]);
+  });
+
+  it("flags a sized item even when the AI reports nothing, and clears once a size is typed", () => {
+    expect(draftFlags([kurti], [], SEED_CATALOG)).toEqual(["Size not mentioned – please check"]);
+    expect(draftFlags([{ ...kurti, size: "M" }], [], SEED_CATALOG)).toEqual([]);
+    expect(needsSize(kurti, SEED_CATALOG)).toBe(true);
+    expect(needsSize(saree, SEED_CATALOG)).toBe(false);
+  });
+
+  it("doesn't repeat the AI's own size flag, and keeps its other flags", () => {
+    const flags = draftFlags(
+      [kurti],
+      ["Size not specified for the kurti", "Phone number looks incomplete"],
+      SEED_CATALOG,
+    );
+    expect(flags).toEqual([SIZE_FLAG, "Phone number looks incomplete"]);
+  });
+
+  it("drops a size the model guessed, but keeps one the buyer wrote", () => {
+    expect(groundedSize("M", "hi, 1 blue kurti pls")).toBeUndefined();
+    expect(groundedSize("M", "blue kurti size M pls")).toBe("M");
+    expect(groundedSize("M", "blue kurti, medium")).toBe("M");
+    expect(groundedSize("XL", "kurti xl please")).toBe("XL");
+    expect(groundedSize("M", "I'm in jaipur")).toBeUndefined();
+  });
+});
+
+describe("building an order without AI", () => {
+  beforeEach(() => actions.resetDemo());
+
+  it("opens a blank draft form with no AI source, and the order still goes through", () => {
+    actions.openNewOrder();
+    actions.updateDraft({ chat: "phone order" });
+    actions.startBlankDraft();
+    const d = getState().draft;
+    expect(d).toMatchObject({
+      status: "drafted",
+      lines: [],
+      buyerName: "",
+      buyerPhone: "",
+      codOffered: true,
+      chat: "phone order",
+    });
+    expect(d.source).toBeUndefined();
+
+    actions.updateDraft({
+      buyerName: "meena",
+      buyerPhone: "9876543210",
+      lines: linesFrom("2 jhumkas please"),
+    });
+    const order = actions.createLink();
+    expect(order).toMatchObject({ buyerName: "Meena", buyerPhone: "9876543210" });
+    expect(order.lines[0]).toMatchObject({ catalogId: "jhumka-silver", qty: 2 });
   });
 });
 

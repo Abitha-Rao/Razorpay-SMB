@@ -22,7 +22,7 @@ export const SAMPLES: Sample[] = [
   {
     key: "new",
     label: "New buyer, COD",
-    chat: "hi, the green bandhani saree pls, cod. send to flat 12 b block near hanuman mandir sector 4 rohini delhi 110085. priya 9811204521",
+    chat: "hi, 1 blue cotton kurti pls, cod. send to flat 12 b block near hanuman mandir sector 4 rohini delhi 110085. priya 9811204521",
   },
   {
     key: "returned",
@@ -49,17 +49,18 @@ const SAMPLE_DRAFTS: Record<Sample["key"], DraftResult> = {
     lines: [
       {
         type: "catalog",
-        catalog_id: "saree-bandhani-green",
-        name: "Green bandhani saree",
+        catalog_id: "kurti-blue",
+        name: "Blue cotton kurti",
         qty: 1,
-        unit_price: 2450,
+        unit_price: 1200,
+        size: null,
       },
     ],
     discount: null,
     payment_hint: "cod",
     address_text: "flat 12 b block near hanuman mandir sector 4 rohini delhi 110085",
     pincode: "110085",
-    uncertain: ["Quantity not mentioned – assumed 1"],
+    uncertain: ["Size not mentioned – please check"],
   },
   returned: {
     buyer_name: "Rohit",
