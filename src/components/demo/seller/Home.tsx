@@ -1,4 +1,5 @@
 import { Btn, OrderAmount, OrderStatusTags } from "@/components/demo/ui";
+import { MarkingBanner } from "@/components/demo/seller/MarkingBanner";
 import { SELLER } from "@/lib/demo/seed";
 import { actions, useStore } from "@/lib/demo/store";
 
@@ -24,6 +25,10 @@ export function Home() {
       <h1 className="text-xl font-bold text-navy">
         {SELLER.name}, {SELLER.city}
       </h1>
+
+      <div className="mt-3 empty:hidden">
+        <MarkingBanner />
+      </div>
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         {cards.map((c) => (

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 
 import {
   Btn,
@@ -12,7 +13,7 @@ import {
 import { AI_TIMEOUT_MS, draftOrderFn } from "@/lib/demo/ai.functions";
 import { SIZE_FLAG, draftFlags, groundedSize, needsSize } from "@/lib/demo/draftChecks";
 import {
-  SAMPLES,
+  ALL_SAMPLES,
   fallbackDraft,
   isPlaceholderAddress,
   titleCaseName,
@@ -29,6 +30,13 @@ import {
   totalWeight,
 } from "@/lib/demo/money";
 import { actions, getState, lastAddressFor, newLineId, useStore } from "@/lib/demo/store";
+import {
+  ORDER_FORMAT,
+  ORDER_FORMAT_TOAST,
+  formBlankFlags,
+  mergeBlankFlags,
+  parseLabelled,
+} from "@/lib/demo/orderFormat";
 import { withTimeout } from "@/lib/demo/timeout";
 import type { CatalogItem, DraftResult, OrderLine } from "@/lib/demo/types";
 import { cn } from "@/lib/utils";
@@ -75,9 +83,32 @@ export function NewOrder() {
   const [nextSample, setNextSample] = useState(0);
   const [sampleNote, setSampleNote] = useState<string | null>(null);
 
+  /** Copy the order format for the seller to send her buyer. */
+  async function copyOrderFormat() {
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(ORDER_FORMAT);
+      copied = true;
+    } catch {
+      // Clipboard access can be blocked (insecure page, embedded frame); try the older route.
+      const box = document.createElement("textarea");
+      box.value = ORDER_FORMAT;
+      box.style.position = "fixed";
+      box.style.opacity = "0";
+      document.body.appendChild(box);
+      box.select();
+      try {
+        copied = document.execCommand("copy");
+      } finally {
+        document.body.removeChild(box);
+      }
+    }
+    toast(copied ? ORDER_FORMAT_TOAST : "Couldn't copy the order format");
+  }
+
   function loadSample() {
-    const index = nextSample % SAMPLES.length;
-    const sample = SAMPLES[index]!;
+    const index = nextSample % ALL_SAMPLES.length;
+    const sample = ALL_SAMPLES[index]!;
     actions.updateDraft({
       chat: sample.chat,
       from: sample.from,
@@ -85,7 +116,7 @@ export function NewOrder() {
       lines: [],
       uncertain: [],
     });
-    setSampleNote(`Sample ${index + 1} of ${SAMPLES.length}: ${sample.label}`);
+    setSampleNote(`Sample ${index + 1} of ${ALL_SAMPLES.length}: ${sample.label}`);
     setNextSample(index + 1);
     void runDraft();
   }
@@ -114,7 +145,11 @@ export function NewOrder() {
     const r = result.draft;
     const lines = toLines(r, cat, d.chat);
     const phone = r.buyer_phone ?? d.from?.phone ?? "";
-    const uncertain = [...(r.uncertain ?? [])];
+    // A filled-in order format: any field the buyer left blank is flagged, whoever did the drafting.
+    const uncertain = mergeBlankFlags(
+      [...(r.uncertain ?? [])],
+      formBlankFlags(parseLabelled(d.chat)),
+    );
 
     // "Same/old address" is a reference, not an address: look it up from this number's last order.
     const placeholder = isPlaceholderAddress(r.address_text);
@@ -173,7 +208,7 @@ export function NewOrder() {
               className={cn(inputCls, "resize-none leading-relaxed")}
             />
           </Field>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <Btn
               size="sm"
               variant="secondary"
@@ -182,8 +217,11 @@ export function NewOrder() {
             >
               Use a sample message
             </Btn>
-            {sampleNote && <span className="text-[11px] text-navy/50">{sampleNote}</span>}
+            <Btn size="sm" variant="secondary" onClick={copyOrderFormat}>
+              Copy order format
+            </Btn>
           </div>
+          {sampleNote && <p className="mt-1.5 text-[11px] text-navy/50">{sampleNote}</p>}
           {draft.from && (
             <p className="mt-2 text-xs text-navy/55">
               Order message from <span className="font-medium text-navy">{draft.from.name}</span>

@@ -11,11 +11,16 @@ export const SIZE_FLAG = "Size not mentioned – please check";
 const SIZED_ITEM_RE =
   /\b(kurti|kurtis|kurta|kurtas|blouse|top|shirt|dress|suit|salwar|lehenga|palazzo|pants)\b/i;
 
+/** An item name that comes in sizes. */
+export function isSizedName(name: string): boolean {
+  return SIZED_ITEM_RE.test(name);
+}
+
 /** A catalog line for an item that comes in sizes. */
 export function isSizedLine(line: OrderLine, catalog: CatalogItem[]): boolean {
   if (line.type !== "catalog") return false;
   const name = catalog.find((c) => c.id === line.catalogId)?.name ?? line.name;
-  return SIZED_ITEM_RE.test(name);
+  return isSizedName(name);
 }
 
 /** A sized item that has no size yet. Clears as soon as the seller types one. */

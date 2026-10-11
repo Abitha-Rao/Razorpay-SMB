@@ -12,20 +12,22 @@ A mobile-first app for one-person Instagram and WhatsApp sellers. The seller pas
 4. **Seller app** → **Orders** → open the order → **Mark delivered**.
 5. **Record** shows the track record grow (paid & delivered orders, return rate).
 
-Tap **Use a sample message** again for the next sample. Each one meets a different COD rule:
+Tap **Use a sample message** again for the next sample. The first four each meet a different COD rule, and the fifth is a buyer's filled-in order format with Size left blank:
 
-| Sample             | Buyer                                                      | What they see under Payment Options                              |
-| ------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------- |
-| 1. New buyer, COD  | Priya (new number), asks for a kurti without naming a size | COD selectable, with a banner nudging them to pay online         |
-| 2. Returned parcel | Rohit (one returned order)                                 | "Pay a part now, rest on delivery" with the amount               |
-| 3. Blocked buyer   | Vikram (on the Blocked list)                               | COD disabled: "COD isn't available for this order"               |
-| 4. Trusted buyer   | Anjali (on the Trusted list)                               | COD selectable, no banner; her saved address loads after the OTP |
+| Sample                    | Buyer                                                      | What they see under Payment Options                                  |
+| ------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1. New buyer, COD         | Priya (new number), asks for a kurti without naming a size | COD selectable, with a banner nudging them to pay online             |
+| 2. Returned parcel        | Rohit (one returned order)                                 | "Pay a part now, rest on delivery" with the amount                   |
+| 3. Blocked buyer          | Vikram (on the Blocked list)                               | COD disabled: "COD isn't available for this order"                   |
+| 4. Trusted buyer          | Anjali (on the Trusted list)                               | COD selectable, no banner; her saved address loads after the OTP     |
+| 5. Filled-in order format | Kavya (Size left blank)                                    | Size is flagged as missing; the COD rules apply as for any new buyer |
 
 **Reset** (top right) restores the seed data: one seller, 12 orders (one returned order, one trusted buyer, one blocked buyer), saved addresses for the seed buyers, the ₹49 COD fee, free shipping on prepaid, and the Trusted and Blocked lists. The state is saved in `localStorage`, so a refresh keeps what you created.
 
 ## Seller flow
 
 - **Paste the buyer's order message.** AI drafts items, quantity, price and buyer name, and flags missing details such as size or weight under "Check these", right above the drafted lines. A sized item with no size is also flagged on its own line, and the form works this out itself, so the flag shows even if the AI reports nothing. It clears as soon as the seller types a size.
+- **Copy order format.** A secondary button by the message box copies a short form for the buyer to fill in (Name, Item, Size, Quantity, Phone) and shows "Order format copied, send it to your buyer". When the filled-in reply is pasted, the AI draft, and the offline parser when AI is unavailable, read each "Label: value" line. A blank field is flagged like any missing detail: a blank Size on a sized item, and a blank Name, Item, Quantity or Phone each get their own flag. "-" and "n/a" count as blank.
 - **Or build the order yourself.** A link under **Draft with AI** opens the same draft form, blank, with no AI call. The seller fills in the buyer name, phone and lines herself, so she's never stuck if a buyer orders by phone or the AI call fails.
 - **The seller has the final say.** Every line, the discount (capped at 90% of the subtotal) and the **Payment options** (Pay now + COD, or Pay now only) are editable. Totals are always computed from the lines and can't be typed in. Custom items default to Pay now only.
 - **Share the payment link** from your own WhatsApp (share or copy). **Remind buyer** and **Confirm COD with buyer** work the same way. Every sheet closes with ✕, Escape, a tap outside, after sharing or copying, and when switching between Seller app and Buyer view.
@@ -75,7 +77,9 @@ The outcomes appear inside **Payment Options**:
 
 ## Order book
 
-One list of all orders: buyer, amount, prepaid or COD, payment status, and the Override tag. Search and filters by status and payment type. The seller marks each order **Delivered** or **Returned** by hand. Nothing is automatic.
+One list of all orders: buyer, amount, prepaid or COD, payment status, and the Override and Mark now tags. Search and filters by status and payment type. The seller marks each order **Delivered** or **Returned** by hand. Nothing is automatic.
+
+**Reminder to mark delivery.** An order needs marking when it is paid, COD-confirmed or part-paid and was confirmed more than 3 days ago (from its payment or confirmation time in the timeline, or `createdAt` if there isn't one). A banner on Home and at the top of Orders says how many ("2 orders confirmed over 3 days ago. Mark them delivered or returned to keep your track record accurate."). Tapping it filters Orders to those orders, each with a **Mark now** tag, and **Show all orders** lifts the filter. The banner is hidden when nothing needs marking.
 
 ## Track record
 

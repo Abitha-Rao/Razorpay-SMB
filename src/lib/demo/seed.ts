@@ -228,7 +228,7 @@ const ROWS: Row[] = [
     items: [["stole-maroon", 1]],
     mode: "prepaid",
     status: "paid",
-    daysAgo: 2,
+    daysAgo: 5,
     method: "netbanking",
   },
   {
@@ -236,7 +236,7 @@ const ROWS: Row[] = [
     items: [["kurti-blue", 1, "S"]],
     mode: "cod",
     status: "cod_confirmed",
-    daysAgo: 2,
+    daysAgo: 4,
     method: "cod",
   },
   {

@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
+import { needsMarking } from "@/lib/demo/marking";
 import { dueOnDelivery, formatINR, orderTotal } from "@/lib/demo/money";
 import type { Order, OrderStatus } from "@/lib/demo/types";
 
@@ -210,10 +211,20 @@ export function OverrideTag() {
   );
 }
 
-/** Status chip plus the "Override" tag, for order lists. */
+/** Small tag on orders that were confirmed over 3 days ago and still need marking Delivered or Returned. */
+export function MarkNowTag() {
+  return (
+    <span className="rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-[#b54708]">
+      Mark now
+    </span>
+  );
+}
+
+/** Status chip plus the "Override" and "Mark now" tags, for order lists. */
 export function OrderStatusTags({ order }: { order: Order }) {
   return (
     <span className="flex items-center gap-1">
+      {needsMarking(order) && <MarkNowTag />}
       {order.override && <OverrideTag />}
       <StatusChip status={order.status} />
     </span>

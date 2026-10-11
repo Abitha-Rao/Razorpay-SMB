@@ -3,10 +3,20 @@
  * can't be spoiled by a slow call). The sample chats return fixed drafts; any other text goes
  * through a small keyword parser.
  */
+import { SIZE_FLAG, isSizedName } from "./draftChecks";
+import {
+  BLANK_FLAGS,
+  formBlankFlags,
+  isBlankValue,
+  parseLabelled,
+  parsePhone,
+  parseQuantity,
+  type ParsedForm,
+} from "./orderFormat";
 import type { CatalogItem, DraftResult } from "./types";
 
 export type Sample = {
-  key: "new" | "returned" | "blocked" | "trusted";
+  key: "new" | "returned" | "blocked" | "trusted" | "format";
   /** What this sample shows, for the caption under "Use a sample message". */
   label: string;
   /** Simulates the chat being shared from this WhatsApp contact. */
@@ -42,7 +52,25 @@ export const SAMPLES: Sample[] = [
   },
 ];
 
-const SAMPLE_DRAFTS: Record<Sample["key"], DraftResult> = {
+/**
+ * A buyer's filled-in order format with Size left blank. It has no fixed draft: it goes through
+ * the same reader as any other reply, so the blank Size is flagged.
+ */
+export const FORMAT_SAMPLE: Sample = {
+  key: "format",
+  label: "Filled-in order format, size blank",
+  chat: `Hi! To place your order, please reply with:
+Name: Kavya Iyer
+Item: Blue cotton kurti
+Size:
+Quantity: 2
+Phone: 9876501234`,
+};
+
+/** What "Use a sample message" cycles through: the four COD samples, then the filled-in format. */
+export const ALL_SAMPLES: Sample[] = [...SAMPLES, FORMAT_SAMPLE];
+
+const SAMPLE_DRAFTS: Partial<Record<Sample["key"], DraftResult>> = {
   new: {
     buyer_name: "Priya",
     buyer_phone: "9811204521",
@@ -132,8 +160,13 @@ export function fallbackDraft(
   catalog: CatalogItem[],
   from?: Sample["from"] | undefined,
 ): DraftResult {
-  const sample = SAMPLES.find((p) => p.chat.trim() === chat.trim());
-  if (sample) return structuredClone(SAMPLE_DRAFTS[sample.key]);
+  const sample = ALL_SAMPLES.find((p) => p.chat.trim() === chat.trim());
+  const fixed = sample && SAMPLE_DRAFTS[sample.key];
+  if (fixed) return structuredClone(fixed);
+
+  // A buyer's reply to the order format: read the "Label: value" lines.
+  const form = parseLabelled(chat);
+  if (form) return draftFromForm(form, chat, catalog, from);
 
   const uncertain: string[] = [];
   const qtyMatch =
@@ -216,6 +249,69 @@ export function fallbackDraft(
     discount,
     payment_hint,
     address_text: addressMatch?.[1]?.trim() ?? null,
+    pincode,
+    uncertain,
+  };
+}
+
+/** The same checks as the free-text parser, but reading each labelled field on its own. */
+function draftFromForm(
+  form: ParsedForm,
+  chat: string,
+  catalog: CatalogItem[],
+  from?: Sample["from"] | undefined,
+): DraftResult {
+  const itemText = isBlankValue(form.item) ? "" : form.item!;
+  const quantity = parseQuantity(form.quantity);
+  const size = isBlankValue(form.size) ? null : form.size!.trim();
+  const uncertain = [...formBlankFlags(form)];
+
+  const lines: DraftResult["lines"] = [];
+  for (const item of catalog) {
+    const kw =
+      ITEM_KEYWORDS[item.id] ?? new RegExp(item.name.split(" ").slice(-1)[0] ?? item.name, "i");
+    const idx = itemText.search(kw);
+    if (idx < 0) continue;
+    // "2 jhumkas and 1 dupatta" in the Item field: the number written just before the item wins.
+    const own = itemText
+      .slice(Math.max(0, idx - 20), idx)
+      .match(/(\d+)\s*(?:x\s*)?(?:[a-z]+\s+){0,2}$/i)?.[1];
+    lines.push({
+      type: "catalog",
+      catalog_id: item.id,
+      name: item.name,
+      qty: own ? Number(own) : (quantity ?? 1),
+      unit_price: item.price,
+      size: isSizedName(item.name) ? size : null,
+    });
+  }
+  if (lines.some((l) => l.catalog_id && isSizedName(l.name) && !l.size)) uncertain.push(SIZE_FLAG);
+  if (lines.length === 0) {
+    // Blank Item: an empty custom line for the seller to fill in. Unmatched: keep what was written.
+    lines.push({ type: "custom", name: itemText.trim(), qty: quantity ?? 1, unit_price: null });
+    if (itemText)
+      uncertain.push("Couldn't match an item from your catalog – added as a custom line");
+  }
+
+  const name = isBlankValue(form.name) ? null : form.name!.trim();
+  const phone = parsePhone(form.phone);
+  if (!phone && !uncertain.includes(BLANK_FLAGS.phone)) uncertain.push(BLANK_FLAGS.phone);
+  const address = isBlankValue(form.address) ? null : form.address!.trim();
+  const pincode = isBlankValue(form.pincode)
+    ? (address?.match(/\b[1-9]\d{5}\b/)?.[0] ?? null)
+    : form.pincode!.trim();
+
+  return {
+    buyer_name: name ?? from?.name ?? null,
+    buyer_phone: phone ?? from?.phone ?? null,
+    lines,
+    discount: null,
+    payment_hint: /\bcod\b|cash on delivery/i.test(chat)
+      ? "cod"
+      : /gpay|upi|phonepe|paytm|prepaid|pay now|transfer/i.test(chat)
+        ? "prepaid"
+        : "unknown",
+    address_text: address,
     pincode,
     uncertain,
   };

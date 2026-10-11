@@ -73,7 +73,7 @@ export const draftOrderFn = createServerFn({ method: "POST" })
     try {
       const user = JSON.stringify({
         instructions:
-          "Copy quantities, the discount (flat rupees or percent), buyer name and phone exactly as written in the chat. UPI, GPay, PhonePe or 'pay now' means payment_hint prepaid; COD means cod. Only set a line's size if the buyer wrote it. List every missing or unclear detail in uncertain, for example a sized item with no size, or no quantity.",
+          "Copy quantities, the discount (flat rupees or percent), buyer name and phone exactly as written in the chat. UPI, GPay, PhonePe or 'pay now' means payment_hint prepaid; COD means cod. Only set a line's size if the buyer wrote it. List every missing or unclear detail in uncertain, for example a sized item with no size, or no quantity. If the message is a filled-in order form with 'Label: value' lines (Name, Item, Size, Quantity, Phone), read each field; a blank field is missing, so do not guess it, and list it in uncertain.",
         chat: data.chat,
         shared_from_contact: data.from ?? null,
         catalog: data.catalog.map((c) => ({ id: c.id, name: c.name, price: c.price })),

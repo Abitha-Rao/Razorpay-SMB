@@ -2,8 +2,23 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { checkoutSummary, lastUsedPayment } from "@/lib/demo/checkout";
 import { SIZE_FLAG, draftFlags, groundedSize, needsSize } from "@/lib/demo/draftChecks";
+import {
+  ORDER_FORMAT,
+  formBlankFlags,
+  mergeBlankFlags,
+  parseLabelled,
+} from "@/lib/demo/orderFormat";
+import {
+  MARK_AFTER_DAYS,
+  confirmedAt,
+  markingBannerText,
+  needsMarking,
+  ordersNeedingMarking,
+} from "@/lib/demo/marking";
 import { codDecision, codSummary, prepaidOnlyReason } from "@/lib/demo/cod";
 import {
+  ALL_SAMPLES,
+  FORMAT_SAMPLE,
   SAMPLES,
   fallbackDraft,
   isPlaceholderAddress,
@@ -595,5 +610,252 @@ describe("order message samples and seller identity", () => {
     expect(fallbackDraft("something nice", SEED_CATALOG).lines[0]!.name).toBe(
       "Item from the message (edit name)",
     );
+  });
+});
+
+describe("orders that need marking", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.parse("2026-10-11T12:00:00Z");
+  const ago = (days: number) => new Date(now - days * DAY).toISOString();
+
+  /** An order whose payment event (or createdAt, with no event) is `days` ago. */
+  function order(status: Order["status"], days: number, label: string | null = "Paid"): Order {
+    return {
+      id: "ORD-9",
+      linkCode: "ZZZZZZ",
+      createdAt: ago(days),
+      buyerName: "Test",
+      buyerPhone: "9000000000",
+      lines: [],
+      discount: null,
+      status,
+      paymentMode: "prepaid",
+      paidAmount: 0,
+      codFee: 0,
+      shippingCharged: 0,
+      codOffered: true,
+      timeline: label
+        ? [
+            { label: "Link created", at: ago(days) },
+            { label, at: ago(days) },
+          ]
+        : [],
+    };
+  }
+
+  it("is true for paid, cod_confirmed and partial_paid orders confirmed more than 3 days ago", () => {
+    expect(needsMarking(order("paid", 3.1, "Paid"), now)).toBe(true);
+    expect(needsMarking(order("cod_confirmed", 5, "COD confirmed"), now)).toBe(true);
+    expect(needsMarking(order("partial_paid", 4, "Part paid (₹490), rest on delivery"), now)).toBe(
+      true,
+    );
+  });
+
+  it("is false inside 3 days, and exactly at 3 days", () => {
+    expect(needsMarking(order("paid", 0.5), now)).toBe(false);
+    expect(needsMarking(order("paid", 2.9), now)).toBe(false);
+    expect(needsMarking(order("paid", MARK_AFTER_DAYS), now)).toBe(false);
+    expect(needsMarking(order("cod_confirmed", 2, "COD confirmed"), now)).toBe(false);
+    expect(needsMarking(order("partial_paid", 1, "Part paid, rest on delivery"), now)).toBe(false);
+  });
+
+  it("is false for every other status, however old", () => {
+    for (const status of ["awaiting_payment", "delivered", "returned"] as const)
+      expect(needsMarking(order(status, 30), now), status).toBe(false);
+  });
+
+  it("counts from the payment event, not from when the link was created", () => {
+    const o = order("paid", 10);
+    o.timeline = [
+      { label: "Link created", at: ago(10) },
+      { label: "Paid", at: ago(1) },
+    ];
+    expect(confirmedAt(o)).toBe(now - 1 * DAY);
+    expect(needsMarking(o, now)).toBe(false);
+  });
+
+  it("falls back to createdAt when the timeline has no payment event", () => {
+    const o = order("paid", 5, null);
+    expect(confirmedAt(o)).toBe(now - 5 * DAY);
+    expect(needsMarking(o, now)).toBe(true);
+    expect(needsMarking(order("paid", 1, null), now)).toBe(false);
+  });
+
+  it("lists just the orders to mark, and words the banner for one or many", () => {
+    const list = [
+      order("paid", 5),
+      order("paid", 1),
+      order("delivered", 9),
+      order("cod_confirmed", 4, "COD confirmed"),
+    ];
+    expect(ordersNeedingMarking(list, now)).toHaveLength(2);
+    expect(markingBannerText(2)).toBe(
+      "2 orders confirmed over 3 days ago. Mark them delivered or returned to keep your track record accurate.",
+    );
+    expect(markingBannerText(1)).toBe(
+      "1 order confirmed over 3 days ago. Mark it delivered or returned to keep your track record accurate.",
+    );
+  });
+
+  it("the seed has orders to mark: paid and COD-confirmed, over 3 days old", () => {
+    const toMark = ordersNeedingMarking(seed);
+    expect(toMark.length).toBeGreaterThanOrEqual(1);
+    expect(toMark.map((o) => o.status)).toEqual(expect.arrayContaining(["paid", "cod_confirmed"]));
+  });
+
+  it("the banner opens Orders filtered, and leaving the tab clears the filter", () => {
+    actions.resetDemo();
+    actions.setTab("home");
+    actions.showNeedsMarking();
+    expect(getState()).toMatchObject({ tab: "orders", markingFilter: true });
+    actions.setTab("home");
+    expect(getState().markingFilter).toBe(false);
+    actions.showNeedsMarking();
+    actions.clearMarkingFilter();
+    expect(getState().markingFilter).toBe(false);
+  });
+
+  it("marking an order delivered takes it off the list", () => {
+    actions.resetDemo();
+    const before = ordersNeedingMarking(getState().orders).length;
+    const target = ordersNeedingMarking(getState().orders)[0]!;
+    actions.markDelivered(target.id);
+    expect(ordersNeedingMarking(getState().orders)).toHaveLength(before - 1);
+  });
+});
+
+describe("order format", () => {
+  const filled = `Hi! To place your order, please reply with:
+Name: Kavya Iyer
+Item: Blue cotton kurti
+Size: M
+Quantity: 2
+Phone: 9876501234`;
+
+  it("is exactly the text the seller copies", () => {
+    expect(ORDER_FORMAT).toBe(
+      "Hi! To place your order, please reply with:\nName:\nItem:\nSize:\nQuantity:\nPhone:",
+    );
+  });
+
+  it("the fallback parser reads a fully filled format", () => {
+    const d = fallbackDraft(filled, SEED_CATALOG);
+    expect(d.buyer_name).toBe("Kavya Iyer");
+    expect(d.buyer_phone).toBe("9876501234");
+    expect(d.lines).toEqual([
+      {
+        type: "catalog",
+        catalog_id: "kurti-blue",
+        name: "Blue cotton kurti",
+        qty: 2,
+        unit_price: 1200,
+        size: "M",
+      },
+    ]);
+    expect(d.uncertain).toEqual([]);
+    const lines = d.lines.map((l, i) => ({
+      id: String(i),
+      type: l.type,
+      catalogId: l.catalog_id,
+      name: l.name,
+      qty: l.qty,
+      size: l.size ?? undefined,
+      unitPrice: l.unit_price ?? null,
+      weightKg: 0.3,
+    })) as OrderLine[];
+    expect(draftFlags(lines, d.uncertain, SEED_CATALOG)).toEqual([]);
+  });
+
+  it("flags Size as missing when it is left blank", () => {
+    const blank = filled.replace("Size: M", "Size:");
+    const d = fallbackDraft(blank, SEED_CATALOG);
+    expect(d.lines[0]).toMatchObject({ catalog_id: "kurti-blue", qty: 2 });
+    expect(d.lines[0]!.size).toBeFalsy();
+    expect(d.uncertain).toContain(SIZE_FLAG);
+    // The draft form works the flag out from the lines too, so it shows whatever the AI says.
+    const lines = d.lines.map((l, i) => ({
+      id: String(i),
+      type: l.type,
+      catalogId: l.catalog_id,
+      name: l.name,
+      qty: l.qty,
+      unitPrice: l.unit_price ?? null,
+      weightKg: 0.3,
+    })) as OrderLine[];
+    expect(draftFlags(lines, [], SEED_CATALOG)).toEqual([SIZE_FLAG]);
+  });
+
+  it("treats '-' and 'n/a' as blank, and flags every other blank field", () => {
+    const d = fallbackDraft(
+      "Name:\nItem: Blue cotton kurti\nSize: n/a\nQuantity: -\nPhone:",
+      SEED_CATALOG,
+    );
+    expect(d.buyer_name).toBeNull();
+    expect(d.buyer_phone).toBeNull();
+    expect(d.lines[0]!.qty).toBe(1);
+    expect(d.uncertain).toEqual(
+      expect.arrayContaining([
+        "Buyer name not in the message",
+        "Quantity not mentioned – assumed 1",
+        "Buyer phone not in the message",
+        SIZE_FLAG,
+      ]),
+    );
+  });
+
+  it("a blank Name doesn't swallow the next label, and a blank Item gives an empty line to fill", () => {
+    const d = fallbackDraft("Name:\nItem:\nSize:\nQuantity: 1\nPhone: 9000000000", SEED_CATALOG);
+    expect(d.buyer_name).toBeNull();
+    expect(d.lines[0]).toMatchObject({ type: "custom", name: "", unit_price: null });
+    expect(d.uncertain).toEqual(
+      expect.arrayContaining([
+        "Buyer name not in the message",
+        "Item not mentioned – please check",
+      ]),
+    );
+  });
+
+  it("a size isn't needed for an item without sizes", () => {
+    const d = fallbackDraft(
+      "Name: Meena\nItem: Block-print dupatta\nSize:\nQuantity: 3\nPhone: 9876543210",
+      SEED_CATALOG,
+    );
+    expect(d.lines[0]).toMatchObject({ catalog_id: "dupatta-blockprint", qty: 3 });
+    expect(d.uncertain).toEqual([]);
+  });
+
+  it("only a filled-in format is read this way; ordinary messages are unchanged", () => {
+    expect(parseLabelled("hi, 1 blue kurti pls, cod. priya 9811204521")).toBeNull();
+    expect(parseLabelled("Name: Priya\nPhone: 9811204521")).toBeNull();
+    expect(formBlankFlags(null)).toEqual([]);
+    const d = fallbackDraft(
+      "hello, rohit here 9811122233. 1 green bandhani saree, cod please.",
+      SEED_CATALOG,
+    );
+    expect(d.lines[0]).toMatchObject({ catalog_id: "saree-bandhani-green" });
+  });
+
+  it("flags blanks for AI drafts too, without repeating what the AI already said", () => {
+    const form = parseLabelled("Name: Meena\nItem: Blue kurti\nSize:\nQuantity:\nPhone:");
+    const blank = formBlankFlags(form);
+    expect(mergeBlankFlags([], blank)).toEqual([
+      "Quantity not mentioned – assumed 1",
+      "Buyer phone not in the message",
+    ]);
+    expect(mergeBlankFlags(["Quantity was not specified", "Phone number missing"], blank)).toEqual([
+      "Quantity was not specified",
+      "Phone number missing",
+    ]);
+  });
+
+  it("the new sample is a filled-in format with Size left blank, next to the existing samples", () => {
+    expect(SAMPLES).toHaveLength(4);
+    expect(ALL_SAMPLES).toHaveLength(5);
+    expect(ALL_SAMPLES.at(-1)).toBe(FORMAT_SAMPLE);
+    expect(FORMAT_SAMPLE.chat).toMatch(/^Size:\s*$/m);
+    const d = fallbackDraft(FORMAT_SAMPLE.chat, SEED_CATALOG);
+    expect(d.lines[0]).toMatchObject({ catalog_id: "kurti-blue", qty: 2 });
+    expect(d.buyer_name).toBe("Kavya Iyer");
+    expect(d.uncertain).toContain(SIZE_FLAG);
   });
 });

@@ -94,6 +94,8 @@ export type State = {
   draft: DraftState;
   /** The one bottom sheet open in the seller app (share/copy a message to the buyer). */
   sheet: Sheet | null;
+  /** Orders list shows only the orders that need marking Delivered or Returned. */
+  markingFilter: boolean;
   /** The order the buyer link points at (latest link created). */
   linkOrderId: string | null;
   buyer: BuyerFlow | null;
@@ -139,6 +141,7 @@ function initialState(aiAvailable = false): State {
     orders: buildSeedOrders(),
     draft: emptyDraft(),
     sheet: null,
+    markingFilter: false,
     linkOrderId: null,
     buyer: null,
     trusted: lists.trusted,
@@ -391,7 +394,15 @@ export const actions = {
   },
   setTab(tab: SellerTab) {
     clearToasts();
-    setState({ tab, screen: { kind: "tab" }, sheet: null });
+    setState({ tab, screen: { kind: "tab" }, sheet: null, markingFilter: false });
+  },
+  /** The "mark delivery" banner: open Orders showing only the orders that need marking. */
+  showNeedsMarking() {
+    clearToasts();
+    setState({ tab: "orders", screen: { kind: "tab" }, sheet: null, markingFilter: true });
+  },
+  clearMarkingFilter() {
+    setState({ markingFilter: false });
   },
   openNewOrder() {
     clearToasts();

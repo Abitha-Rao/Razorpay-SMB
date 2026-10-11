@@ -7,6 +7,8 @@ import {
   OrderStatusTags,
   inputCls,
 } from "@/components/demo/ui";
+import { MarkingBanner } from "@/components/demo/seller/MarkingBanner";
+import { needsMarking, ordersNeedingMarking } from "@/lib/demo/marking";
 import { actions, useStore } from "@/lib/demo/store";
 import type { Order, OrderStatus } from "@/lib/demo/types";
 
@@ -38,9 +40,14 @@ export function Orders() {
   const [status, setStatus] = useState<OrderStatus | "all">("all");
   const [pay, setPay] = useState<(typeof PAY_FILTERS)[number]["key"]>("all");
 
+  // The banner filters to the orders that need marking; it lifts once none are left.
+  const markingFilter = useStore((s) => s.markingFilter);
+  const marking = markingFilter && ordersNeedingMarking(orders).length > 0;
+
   const query = q.trim().toLowerCase();
   const list = orders.filter(
     (o) =>
+      (!marking || needsMarking(o)) &&
       (status === "all" || o.status === status) &&
       (pay === "all" || payType(o) === pay) &&
       (!query ||
@@ -57,6 +64,7 @@ export function Orders() {
         right={<span className="text-xs text-navy/50">{orders.length} total</span>}
       />
       <div className="space-y-2 px-4 pt-3">
+        <MarkingBanner showAll={marking} />
         <input
           className={inputCls}
           placeholder="Search buyer, phone or product"
