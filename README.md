@@ -4,6 +4,54 @@ A mobile-first app for one-person Instagram and WhatsApp sellers. The seller pas
 
 > This is an unofficial concept build. The checkout is simulated: no real payments happen, the OTP accepts any 6 digits, and nothing is sent to a buyer. It is not affiliated with or endorsed by Razorpay.
 
+## Product note
+
+*Chat Checkout: Razorpay for sellers who sell on Instagram and WhatsApp.* A mobile flow for one-person sellers who run their business from a phone: turn a buyer's chat into a verified Razorpay order, in under two minutes. The one-page original is in [docs/ChatCheckout_ProductNote.pdf](docs/ChatCheckout_ProductNote.pdf).
+
+### Problem
+
+| Persona                                       | How they sell today                                                                                                   | Their problem                                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Shristi, 24, ethnic-wear reseller (Jaipur)    | Posts reels on Instagram; takes 10-15 orders a day in DMs; most buyers pick COD.                                      | About 1 in 3 COD parcels comes back and she pays freight both ways, ₹150-300 each time.                                     |
+| Kavita, 45, home-made snacks and pickles (Hyderabad) | Steady repeat orders from family, friends and word of mouth on WhatsApp; recently opened an Instagram page to reach strangers. | Instagram buyers see a new account with few followers and won't pay someone they can't verify, though she has years of happy customers on WhatsApp. |
+| Yash, 28, daily salad bowls (Bangalore)       | Posts the menu on WhatsApp; buyers fill a Google Form and upload their payment screenshot; 20-40 bowls a day.         | He has to match each screenshot to each form entry by hand, so some payments are missed and some orders are made without a confirmed payment. |
+
+**Primary problem: COD orders that come back.** 14 of 22 sellers interviewed take mostly COD, and 35-40% of social-commerce COD orders are returned. Each costs the seller freight both ways, with no sale. They can't screen a COD buyer, because Razorpay's COD checks need a website. Also found in interviews: orders live in chats (19/22 track them there), payments are checked by screenshot so some are missed, and new buyers can't tell if a seller is genuine. 20/22 wanted an easier way to manage orders and payments.
+
+**The gap.** Razorpay's checkout intelligence, including COD checks and saved addresses in Magic Checkout, is built for merchants with a Shopify/WooCommerce store, app or website to plug it into. Sellers without one get Payment Links, which collect money but don't help build the order, check a COD buyer or track what happens after.
+
+### Solution
+
+1. **Order from a chat message.** The seller sends her order format (name, item, size, quantity, phone). The buyer fills it in and replies, and the seller pastes the reply into the app. AI turns it into a ready order; the seller verifies it and shares the link back to the buyer.
+2. **Safer checkout for the buyer.** The buyer checks the order and enters their address, which is checked for gaps. For COD, blocked buyers can't choose it, and others may see a prepaid offer or a small COD fee.
+3. **Orders in the app.** Paid orders confirm automatically and show up with their status. Sellers mark delivered or returned.
+4. **Track record.** Paid and delivered orders build a record on the seller's link, building toward a Trusted Business Badge.
+
+### Decisions
+
+- **In the MVP:** AI drafts and seller confirms, address check, COD rules, auto-confirm payment, delivered/returned marking and track record.
+- **Left out on purpose:** Razorpay-sent messages (the seller owns the buyer relationship), a storefront builder, a new risk engine (reuses Magic Checkout), AI talking to buyers.
+- **Bigger bet:** An opt-in, approval-first order bot on WhatsApp Business (needs Meta approval); courier tracking IDs marking delivered/returned.
+- **Risks and mitigations:**
+  - *Track record starts empty.* It counts only Chat Checkout orders, so it can't be faked with imported history. New sellers see little value at first.
+  - *Buyers drop off at the address step.* Three fields to type, city and state fill from the pincode, and addresses are saved for repeat buyers.
+  - *Sellers forget to mark delivered or returned.* Records stay incomplete, so the app reminds them after the expected delivery date.
+
+### Success metrics
+
+- **North Star, paid-and-delivered rate:** share of Chat Checkout orders that end paid and delivered, not returned or abandoned. It rises when fewer COD parcels come back, fewer buyers drop off and fewer payments are missed.
+- **COD return rate:** returned or refused COD orders ÷ shipped COD orders, sellers with the checks vs a holdout group, over 60 days.
+- **Drafts confirmed without edits:** drafts confirmed unedited ÷ all drafts, weekly.
+- **Sellers active at month 3:** sellers with a paid order in month 3 ÷ those with one in month 1, by signup cohort.
+- **Guardrail, checkout drop-out:** share of buyers who open the link but don't pay, compared with plain Payment Links.
+
+### Why Razorpay, and why now
+
+- **Moat:** existing Payment Links rails and Magic Checkout models, trained on 100M+ shoppers, which a chat-commerce startup can't match.
+- **Cross-sell:** a seller's track record can qualify them for Capital loans, tapping the MSME credit gap, and can lead to a paid analytics tier later.
+- **Direction:** Agent Studio (March 2026) already serves small businesses, nearly 80% of Razorpay's customers. Chat Checkout reaches those with no store, app or website.
+- **Timing:** as Razorpay grows revenue beyond payments, new lines matter. Sellers who start now build their track record on Razorpay before they ever open a website.
+
 ## Full path (under 2 minutes)
 
 1. **Seller app** → **New order** → **Use a sample message** (fills the order message and drafts the order in one tap). Check the draft, then **Create payment link**.
